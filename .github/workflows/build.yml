@@ -31,14 +31,9 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Scaffold Android Keyboard Project
+      - name: Scaffold Complete Android Project
         run: |
-          if [ -f "app/src/main/AndroidManifest.xml" ]; then
-            echo "Project files already exist. Skipping scaffold."
-            exit 0
-          fi
-
-          echo "Scaffolding Gemini Keyboard Android project..."
+          echo "Writing latest Gemini Keyboard project files..."
           mkdir -p app/src/main/java/com/gemini/keyboard
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/xml
@@ -90,8 +85,8 @@ jobs:
                   applicationId "com.gemini.keyboard"
                   minSdk 26
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 2
+                  versionName "2.0"
               }
 
               buildTypes {
@@ -121,7 +116,6 @@ jobs:
 
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.RECORD_AUDIO" />
-              <uses-permission android:name="android.permission.VIBRATE" />
 
               <application
                   android:allowBackup="true"
@@ -156,7 +150,7 @@ jobs:
           </manifest>
           EOF
 
-          # 6. Resources: values & xml
+          # 6. Resources
           cat << 'EOF' > app/src/main/res/values/strings.xml
           <resources>
               <string name="app_name">Gemini Keyboard</string>
@@ -166,9 +160,9 @@ jobs:
           cat << 'EOF' > app/src/main/res/values/styles.xml
           <resources>
               <style name="Theme.GeminiApp" parent="Theme.AppCompat.Light.DarkActionBar">
-                  <item name="colorPrimary">#1976D2</item>
-                  <item name="colorPrimaryDark">#0D47A1</item>
-                  <item name="colorAccent">#00BCD4</item>
+                  <item name="colorPrimary">#0284C7</item>
+                  <item name="colorPrimaryDark">#0369A1</item>
+                  <item name="colorAccent">#38BDF8</item>
               </style>
           </resources>
           EOF
@@ -228,7 +222,7 @@ jobs:
                   root.setPadding(pad, pad, pad, pad);
 
                   TextView header = new TextView(this);
-                  header.setText("Configure your Gemini AI Voice Keyboard.\nYour API key stays safe on your device.\n");
+                  header.setText("Configure your Gemini AI Keyboard.\nYour API key is saved locally.\n");
                   header.setTextSize(14);
                   header.setTextColor(Color.DKGRAY);
                   root.addView(header);
@@ -254,12 +248,12 @@ jobs:
                   root.addView(modelEdit);
 
                   TextView promptLabel = new TextView(this);
-                  promptLabel.setText("\n3. Voice Prompt (Custom instructions):");
+                  promptLabel.setText("\n3. Default Voice Instructions:");
                   promptLabel.setTextSize(16);
                   root.addView(promptLabel);
 
                   promptEdit = new EditText(this);
-                  promptEdit.setText(prefs.getString("prompt", "Transcribe the audio verbatim in the spoken language with proper punctuation. Output ONLY the raw transcript text with no explanations, no filler words, and no markdown."));
+                  promptEdit.setText(prefs.getString("prompt", "Transcribe the audio verbatim in the spoken language with proper punctuation. Output ONLY the raw transcript text with no explanations, no filler, and no markdown."));
                   root.addView(promptEdit);
 
                   Button saveBtn = new Button(this);
@@ -296,9 +290,7 @@ jobs:
                   switchBtn.setText("✨ Step C: Select Active Keyboard");
                   switchBtn.setOnClickListener(v -> {
                       InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                      if (imm != null) {
-                          imm.showInputMethodPicker();
-                      }
+                      if (imm != null) imm.showInputMethodPicker();
                   });
                   root.addView(switchBtn);
 
@@ -313,6 +305,8 @@ jobs:
           package com.gemini.keyboard;
 
           import android.Manifest;
+          import android.content.ClipData;
+          import android.content.ClipboardManager;
           import android.content.Context;
           import android.content.Intent;
           import android.content.SharedPreferences;
@@ -329,11 +323,14 @@ jobs:
           import android.util.TypedValue;
           import android.view.Gravity;
           import android.view.KeyEvent;
+          import android.view.MotionEvent;
           import android.view.View;
           import android.view.ViewGroup;
           import android.view.inputmethod.InputConnection;
           import android.view.inputmethod.InputMethodManager;
           import android.widget.Button;
+          import android.widget.EditText;
+          import android.widget.HorizontalScrollView;
           import android.widget.LinearLayout;
           import android.widget.TextView;
           import androidx.core.content.ContextCompat;
@@ -358,8 +355,13 @@ jobs:
               private boolean isCaps = false;
               private boolean isNumberMode = false;
               private boolean isRecording = false;
+              private long recordStartTime = 0;
 
               private LinearLayout keysContainer;
+              private HorizontalScrollView clipboardBar;
+              private LinearLayout clipboardItemsContainer;
+              private LinearLayout aiPanel;
+              private EditText manualAiPromptInput;
               private Button micButton;
               private TextView statusText;
               private Handler mainHandler;
@@ -385,65 +387,104 @@ jobs:
               }
 
               @Override
+              public void onCreate() {
+                  super.onCreate();
+                  ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                  if (cm != null) {
+                      cm.addPrimaryClipChangedListener(() -> {
+                          try {
+                              ClipData clip = cm.getPrimaryClip();
+                              if (clip != null && clip.getItemCount() > 0) {
+                                  CharSequence cs = clip.getItemAt(0).coerceToText(this);
+                                  if (cs != null && cs.length() > 0) saveToClipboardHistory(cs.toString());
+                              }
+                          } catch (Exception ignored) {}
+                      });
+                  }
+              }
+
+              @Override
               public View onCreateInputView() {
                   mainHandler = new Handler(Looper.getMainLooper());
 
                   LinearLayout rootLayout = new LinearLayout(this);
                   rootLayout.setOrientation(LinearLayout.VERTICAL);
-                  rootLayout.setBackgroundColor(Color.parseColor("#18181B"));
-                  rootLayout.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(6));
+                  rootLayout.setBackgroundColor(Color.parseColor("#121214"));
+                  rootLayout.setPadding(dpToPx(3), dpToPx(3), dpToPx(3), dpToPx(4));
 
-                  // Toolbar (Mic, Status, Settings, Switcher)
+                  // Toolbar
                   LinearLayout toolbar = new LinearLayout(this);
                   toolbar.setOrientation(LinearLayout.HORIZONTAL);
                   toolbar.setGravity(Gravity.CENTER_VERTICAL);
-                  toolbar.setPadding(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(4));
+                  toolbar.setPadding(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
 
+                  // Hold-to-Talk Mic
                   micButton = new Button(this);
-                  micButton.setText("🎙️ Voice");
+                  micButton.setText("🎙️ Hold");
                   micButton.setTextColor(Color.WHITE);
-                  micButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                  micButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
                   GradientDrawable micBg = new GradientDrawable();
                   micBg.setColor(Color.parseColor("#0284C7"));
                   micBg.setCornerRadius(dpToPx(6));
                   micButton.setBackground(micBg);
-                  micButton.setOnClickListener(v -> toggleVoiceTyping());
-                  toolbar.addView(micButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(38)));
+                  setupHoldToTalk(micButton);
+                  toolbar.addView(micButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(36)));
 
+                  GradientDrawable barBtnBg = new GradientDrawable();
+                  barBtnBg.setColor(Color.parseColor("#27272A"));
+                  barBtnBg.setCornerRadius(dpToPx(6));
+
+                  // Clipboard Toggle
+                  Button clipToggleBtn = new Button(this);
+                  clipToggleBtn.setText("📋");
+                  clipToggleBtn.setTextColor(Color.WHITE);
+                  clipToggleBtn.setBackground(barBtnBg);
+                  LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(dpToPx(38), dpToPx(36));
+                  clp.leftMargin = dpToPx(4);
+                  clipToggleBtn.setOnClickListener(v -> toggleClipboardBar());
+                  toolbar.addView(clipToggleBtn, clp);
+
+                  // AI Polish Toggle
+                  Button aiToggleBtn = new Button(this);
+                  aiToggleBtn.setText("✨ AI");
+                  aiToggleBtn.setTextColor(Color.WHITE);
+                  aiToggleBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                  aiToggleBtn.setBackground(barBtnBg);
+                  LinearLayout.LayoutParams aip = new LinearLayout.LayoutParams(dpToPx(44), dpToPx(36));
+                  aip.leftMargin = dpToPx(4);
+                  aiToggleBtn.setOnClickListener(v -> toggleAiPanel());
+                  toolbar.addView(aiToggleBtn, aip);
+
+                  // Status Text
                   statusText = new TextView(this);
                   statusText.setText("Ready");
-                  statusText.setTextColor(Color.parseColor("#A1A1AA"));
-                  statusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                  statusText.setTextColor(Color.parseColor("#9CA3AF"));
+                  statusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
                   statusText.setGravity(Gravity.CENTER);
                   statusText.setSingleLine(true);
                   statusText.setEllipsize(TextUtils.TruncateAt.END);
                   LinearLayout.LayoutParams stParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
-                  stParams.setMargins(dpToPx(6), 0, dpToPx(6), 0);
+                  stParams.setMargins(dpToPx(4), 0, dpToPx(4), 0);
                   toolbar.addView(statusText, stParams);
 
-                  GradientDrawable iconBg = new GradientDrawable();
-                  iconBg.setColor(Color.parseColor("#27272A"));
-                  iconBg.setCornerRadius(dpToPx(6));
-
+                  // Settings
                   Button settingsBtn = new Button(this);
                   settingsBtn.setText("⚙️");
                   settingsBtn.setTextColor(Color.WHITE);
-                  settingsBtn.setBackground(iconBg);
+                  settingsBtn.setBackground(barBtnBg);
                   settingsBtn.setOnClickListener(v -> {
                       Intent intent = new Intent(this, SettingsActivity.class);
                       intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                       startActivity(intent);
                   });
-                  toolbar.addView(settingsBtn, new LinearLayout.LayoutParams(dpToPx(42), dpToPx(38)));
+                  toolbar.addView(settingsBtn, new LinearLayout.LayoutParams(dpToPx(36), dpToPx(36)));
 
+                  // Switch IME
                   Button switchImeBtn = new Button(this);
                   switchImeBtn.setText("🌐");
                   switchImeBtn.setTextColor(Color.WHITE);
-                  GradientDrawable switchBg = new GradientDrawable();
-                  switchBg.setColor(Color.parseColor("#27272A"));
-                  switchBg.setCornerRadius(dpToPx(6));
-                  switchImeBtn.setBackground(switchBg);
-                  LinearLayout.LayoutParams swParams = new LinearLayout.LayoutParams(dpToPx(42), dpToPx(38));
+                  switchImeBtn.setBackground(barBtnBg);
+                  LinearLayout.LayoutParams swParams = new LinearLayout.LayoutParams(dpToPx(36), dpToPx(36));
                   swParams.leftMargin = dpToPx(4);
                   switchImeBtn.setOnClickListener(v -> {
                       InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
@@ -452,6 +493,19 @@ jobs:
                   toolbar.addView(switchImeBtn, swParams);
 
                   rootLayout.addView(toolbar);
+
+                  // Clipboard Drawer (Initially hidden)
+                  clipboardBar = new HorizontalScrollView(this);
+                  clipboardBar.setVisibility(View.GONE);
+                  clipboardBar.setPadding(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
+                  clipboardItemsContainer = new LinearLayout(this);
+                  clipboardItemsContainer.setOrientation(LinearLayout.HORIZONTAL);
+                  clipboardBar.addView(clipboardItemsContainer);
+                  rootLayout.addView(clipboardBar);
+
+                  // AI Rewriting Panel (Initially hidden)
+                  aiPanel = buildAiPanel();
+                  rootLayout.addView(aiPanel);
 
                   // Keys
                   keysContainer = new LinearLayout(this);
@@ -462,6 +516,275 @@ jobs:
                   return rootLayout;
               }
 
+              // --- AI Polish & Custom Prompt Panel ---
+              private LinearLayout buildAiPanel() {
+                  LinearLayout panel = new LinearLayout(this);
+                  panel.setOrientation(LinearLayout.VERTICAL);
+                  panel.setVisibility(View.GONE);
+                  panel.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4));
+
+                  // Preset chips
+                  HorizontalScrollView chipScroll = new HorizontalScrollView(this);
+                  LinearLayout chipRow = new LinearLayout(this);
+                  chipRow.setOrientation(LinearLayout.HORIZONTAL);
+
+                  String[] presets = {"Fix Grammar", "Make Professional", "Make Casual", "Bullet Points", "Translate to English"};
+                  for (String p : presets) {
+                      Button chip = new Button(this);
+                      chip.setText(p);
+                      chip.setAllCaps(false);
+                      chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                      chip.setTextColor(Color.WHITE);
+                      GradientDrawable bg = new GradientDrawable();
+                      bg.setColor(Color.parseColor("#3F3F46"));
+                      bg.setCornerRadius(dpToPx(14));
+                      chip.setBackground(bg);
+                      LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(32));
+                      lp.setMargins(dpToPx(2), 0, dpToPx(2), 0);
+                      chip.setLayoutParams(lp);
+                      chip.setOnClickListener(v -> rewriteWithGemini(p));
+                      chipRow.addView(chip);
+                  }
+                  chipScroll.addView(chipRow);
+                  panel.addView(chipScroll);
+
+                  // Manual prompt row
+                  LinearLayout manualRow = new LinearLayout(this);
+                  manualRow.setOrientation(LinearLayout.HORIZONTAL);
+                  manualRow.setGravity(Gravity.CENTER_VERTICAL);
+                  manualRow.setPadding(0, dpToPx(4), 0, 0);
+
+                  manualAiPromptInput = new EditText(this);
+                  manualAiPromptInput.setHint("Or type manual prompt (e.g. summarize in 10 words)");
+                  manualAiPromptInput.setHintTextColor(Color.parseColor("#71717A"));
+                  manualAiPromptInput.setTextColor(Color.WHITE);
+                  manualAiPromptInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                  GradientDrawable inputBg = new GradientDrawable();
+                  inputBg.setColor(Color.parseColor("#18181B"));
+                  inputBg.setStroke(dpToPx(1), Color.parseColor("#3F3F46"));
+                  inputBg.setCornerRadius(dpToPx(6));
+                  manualAiPromptInput.setBackground(inputBg);
+                  manualAiPromptInput.setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6));
+                  manualRow.addView(manualAiPromptInput, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+
+                  Button runManualBtn = new Button(this);
+                  runManualBtn.setText("Apply");
+                  runManualBtn.setTextColor(Color.WHITE);
+                  GradientDrawable runBg = new GradientDrawable();
+                  runBg.setColor(Color.parseColor("#0284C7"));
+                  runBg.setCornerRadius(dpToPx(6));
+                  runManualBtn.setBackground(runBg);
+                  LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(36));
+                  rlp.leftMargin = dpToPx(4);
+                  runManualBtn.setOnClickListener(v -> {
+                      String customInstruction = manualAiPromptInput.getText().toString().trim();
+                      if (!customInstruction.isEmpty()) rewriteWithGemini(customInstruction);
+                  });
+                  manualRow.addView(runManualBtn, rlp);
+
+                  Button closeAiBtn = new Button(this);
+                  closeAiBtn.setText("✖");
+                  closeAiBtn.setTextColor(Color.WHITE);
+                  GradientDrawable closeBg = new GradientDrawable();
+                  closeBg.setColor(Color.parseColor("#27272A"));
+                  closeBg.setCornerRadius(dpToPx(6));
+                  closeAiBtn.setBackground(closeBg);
+                  LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(dpToPx(36), dpToPx(36));
+                  clp.leftMargin = dpToPx(4);
+                  closeAiBtn.setOnClickListener(v -> panel.setVisibility(View.GONE));
+                  manualRow.addView(closeAiBtn, clp);
+
+                  panel.addView(manualRow);
+                  return panel;
+              }
+
+              private void toggleAiPanel() {
+                  if (aiPanel.getVisibility() == View.VISIBLE) {
+                      aiPanel.setVisibility(View.GONE);
+                  } else {
+                      clipboardBar.setVisibility(View.GONE);
+                      aiPanel.setVisibility(View.VISIBLE);
+                  }
+              }
+
+              private void rewriteWithGemini(String instruction) {
+                  InputConnection ic = getCurrentInputConnection();
+                  if (ic == null) return;
+
+                  CharSequence before = ic.getTextBeforeCursor(3000, 0);
+                  CharSequence after = ic.getTextAfterCursor(3000, 0);
+                  String fullText = (before != null ? before.toString() : "") + (after != null ? after.toString() : "");
+
+                  if (fullText.trim().isEmpty()) {
+                      statusText.setText("⚠️ Text box is empty");
+                      return;
+                  }
+
+                  final int beforeLen = before != null ? before.length() : 0;
+                  final int afterLen = after != null ? after.length() : 0;
+
+                  statusText.setText("✨ AI Rewriting...");
+
+                  SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
+                  String apiKey = prefs.getString("api_key", "").trim();
+                  String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
+
+                  if (apiKey.isEmpty()) {
+                      statusText.setText("⚠️ API Key missing! Tap ⚙️");
+                      return;
+                  }
+
+                  new Thread(() -> {
+                      try {
+                          JSONObject requestJson = new JSONObject();
+                          JSONArray contents = new JSONArray();
+                          JSONObject content = new JSONObject();
+                          JSONArray parts = new JSONArray();
+
+                          JSONObject textPart = new JSONObject();
+                          String prompt = "Instruction: " + instruction + "\nOutput ONLY the rewritten text without commentary, quotes, or markdown.\n\nOriginal Text:\n" + fullText;
+                          textPart.put("text", prompt);
+                          parts.put(textPart);
+
+                          content.put("parts", parts);
+                          contents.put(content);
+                          requestJson.put("contents", contents);
+
+                          JSONObject genConfig = new JSONObject();
+                          genConfig.put("temperature", 0.3);
+                          requestJson.put("generationConfig", genConfig);
+
+                          URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey);
+                          HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                          conn.setRequestMethod("POST");
+                          conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                          conn.setDoOutput(true);
+                          conn.setConnectTimeout(15000);
+                          conn.setReadTimeout(20000);
+
+                          try (OutputStream os = conn.getOutputStream()) {
+                              byte[] input = requestJson.toString().getBytes(StandardCharsets.UTF_8);
+                              os.write(input, 0, input.length);
+                          }
+
+                          int responseCode = conn.getResponseCode();
+                          InputStream is = (responseCode >= 200 && responseCode < 300) ? conn.getInputStream() : conn.getErrorStream();
+                          StringBuilder responseBuilder = new StringBuilder();
+                          try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                              String line;
+                              while ((line = br.readLine()) != null) responseBuilder.append(line);
+                          }
+
+                          String respStr = responseBuilder.toString();
+                          if (responseCode != 200) {
+                              mainHandler.post(() -> statusText.setText("❌ AI Error: HTTP " + responseCode));
+                              return;
+                          }
+
+                          JSONObject respJson = new JSONObject(respStr);
+                          JSONArray candidates = respJson.optJSONArray("candidates");
+                          if (candidates != null && candidates.length() > 0) {
+                              JSONObject cand = candidates.getJSONObject(0);
+                              JSONObject candContent = cand.optJSONObject("content");
+                              if (candContent != null) {
+                                  JSONArray candParts = candContent.optJSONArray("parts");
+                                  if (candParts != null && candParts.length() > 0) {
+                                      String rewritten = candParts.getJSONObject(0).optString("text", "").trim();
+                                      mainHandler.post(() -> {
+                                          InputConnection liveIc = getCurrentInputConnection();
+                                          if (liveIc != null && !rewritten.isEmpty()) {
+                                              liveIc.deleteSurroundingText(beforeLen, afterLen);
+                                              liveIc.commitText(rewritten, 1);
+                                          }
+                                          statusText.setText("✅ AI Rewritten!");
+                                          aiPanel.setVisibility(View.GONE);
+                                      });
+                                      return;
+                                  }
+                              }
+                          }
+                          mainHandler.post(() -> statusText.setText("No result from AI"));
+                      } catch (Exception e) {
+                          mainHandler.post(() -> statusText.setText("❌ " + e.getMessage()));
+                      }
+                  }).start();
+              }
+
+              // --- Persistent Clipboard ---
+              private void toggleClipboardBar() {
+                  if (clipboardBar.getVisibility() == View.VISIBLE) {
+                      clipboardBar.setVisibility(View.GONE);
+                  } else {
+                      aiPanel.setVisibility(View.GONE);
+                      refreshClipboardUI();
+                      clipboardBar.setVisibility(View.VISIBLE);
+                  }
+              }
+
+              private void refreshClipboardUI() {
+                  clipboardItemsContainer.removeAllViews();
+                  List<String> items = getClipboardHistory();
+                  if (items.isEmpty()) {
+                      TextView emptyText = new TextView(this);
+                      emptyText.setText("No copied items yet");
+                      emptyText.setTextColor(Color.DKGRAY);
+                      emptyText.setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8));
+                      clipboardItemsContainer.addView(emptyText);
+                      return;
+                  }
+
+                  for (String item : items) {
+                      Button chip = new Button(this);
+                      chip.setText(item.replace("\n", " "));
+                      chip.setAllCaps(false);
+                      chip.setTextColor(Color.WHITE);
+                      chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                      chip.setSingleLine(true);
+                      chip.setEllipsize(TextUtils.TruncateAt.END);
+
+                      GradientDrawable chipBg = new GradientDrawable();
+                      chipBg.setColor(Color.parseColor("#27272A"));
+                      chipBg.setCornerRadius(dpToPx(8));
+                      chip.setBackground(chipBg);
+
+                      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dpToPx(130), dpToPx(36));
+                      params.setMargins(dpToPx(2), dpToPx(2), dpToPx(2), dpToPx(2));
+                      chip.setLayoutParams(params);
+
+                      chip.setOnClickListener(v -> {
+                          InputConnection ic = getCurrentInputConnection();
+                          if (ic != null) ic.commitText(item, 1);
+                          clipboardBar.setVisibility(View.GONE);
+                      });
+                      clipboardItemsContainer.addView(chip);
+                  }
+              }
+
+              private List<String> getClipboardHistory() {
+                  SharedPreferences p = getSharedPreferences("gemini_clipboard", MODE_PRIVATE);
+                  String raw = p.getString("clips", "[]");
+                  List<String> list = new ArrayList<>();
+                  try {
+                      JSONArray arr = new JSONArray(raw);
+                      for (int i = 0; i < arr.length(); i++) list.add(arr.getString(i));
+                  } catch (Exception ignored) {}
+                  return list;
+              }
+
+              private void saveToClipboardHistory(String text) {
+                  if (text == null || text.trim().isEmpty()) return;
+                  text = text.trim();
+                  List<String> list = getClipboardHistory();
+                  list.remove(text);
+                  list.add(0, text);
+                  if (list.size() > 25) list = list.subList(0, 25);
+
+                  JSONArray arr = new JSONArray();
+                  for (String s : list) arr.put(s);
+                  getSharedPreferences("gemini_clipboard", MODE_PRIVATE).edit().putString("clips", arr.toString()).apply();
+              }
+
+              // --- Keyboard Layout & Gestures ---
               private void renderKeyboard() {
                   if (keysContainer == null) return;
                   keysContainer.removeAllViews();
@@ -515,8 +838,127 @@ jobs:
                   btn.setLayoutParams(params);
                   btn.setPadding(0, 0, 0, 0);
 
-                  btn.setOnClickListener(v -> handleKeyPress(keyText));
+                  // 1. Spacebar Trackpad Cursor Scrubbing
+                  if (keyText.equals("SPACE")) {
+                      setupSpacebarScrubbing(btn);
+                  }
+                  // 2. Swipe to Delete
+                  else if (keyText.equals("DEL")) {
+                      setupSwipeToDelete(btn);
+                  }
+                  // 3. Regular keys & Long-press for numbers/symbols
+                  else {
+                      btn.setOnClickListener(v -> handleKeyPress(keyText));
+                      String symbol = getSymbolFor(keyText);
+                      if (symbol != null) {
+                          btn.setOnLongClickListener(v -> {
+                              InputConnection ic = getCurrentInputConnection();
+                              if (ic != null) ic.commitText(symbol, 1);
+                              return true;
+                          });
+                      }
+                  }
                   return btn;
+              }
+
+              private void setupSpacebarScrubbing(Button spaceBtn) {
+                  spaceBtn.setOnTouchListener(new View.OnTouchListener() {
+                      private float startX = 0;
+                      private float lastX = 0;
+                      private boolean isDragging = false;
+
+                      @Override
+                      public boolean onTouch(View v, MotionEvent event) {
+                          switch (event.getAction()) {
+                              case MotionEvent.ACTION_DOWN:
+                                  startX = event.getX();
+                                  lastX = startX;
+                                  isDragging = false;
+                                  return true;
+                              case MotionEvent.ACTION_MOVE:
+                                  float totalDiff = event.getX() - startX;
+                                  if (Math.abs(totalDiff) > dpToPx(10)) isDragging = true;
+                                  if (isDragging) {
+                                      float diff = event.getX() - lastX;
+                                      if (Math.abs(diff) > dpToPx(10)) {
+                                          if (diff > 0) sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_RIGHT);
+                                          else sendDownUpKeyEvents(KeyEvent.KEYCODE_DPAD_LEFT);
+                                          lastX = event.getX();
+                                      }
+                                  }
+                                  return true;
+                              case MotionEvent.ACTION_UP:
+                                  if (!isDragging) {
+                                      InputConnection ic = getCurrentInputConnection();
+                                      if (ic != null) ic.commitText(" ", 1);
+                                  }
+                                  return true;
+                          }
+                          return false;
+                      }
+                  });
+              }
+
+              private void setupSwipeToDelete(Button delBtn) {
+                  delBtn.setOnTouchListener(new View.OnTouchListener() {
+                      private float startX = 0;
+                      private float lastDelX = 0;
+                      private boolean isSwipe = false;
+
+                      @Override
+                      public boolean onTouch(View v, MotionEvent event) {
+                          switch (event.getAction()) {
+                              case MotionEvent.ACTION_DOWN:
+                                  startX = event.getX();
+                                  lastDelX = startX;
+                                  isSwipe = false;
+                                  return true;
+                              case MotionEvent.ACTION_MOVE:
+                                  float deltaLeft = startX - event.getX();
+                                  if (deltaLeft > dpToPx(16)) isSwipe = true;
+                                  if (isSwipe && (lastDelX - event.getX()) > dpToPx(24)) {
+                                      deleteWord();
+                                      lastDelX = event.getX();
+                                  }
+                                  return true;
+                              case MotionEvent.ACTION_UP:
+                                  if (!isSwipe) sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
+                                  return true;
+                          }
+                          return false;
+                      }
+                  });
+              }
+
+              private void deleteWord() {
+                  InputConnection ic = getCurrentInputConnection();
+                  if (ic == null) return;
+                  CharSequence before = ic.getTextBeforeCursor(60, 0);
+                  if (before != null && before.length() > 0) {
+                      int len = before.length();
+                      int i = len - 1;
+                      while (i >= 0 && Character.isWhitespace(before.charAt(i))) i--;
+                      while (i >= 0 && !Character.isWhitespace(before.charAt(i))) i--;
+                      int count = len - (i + 1);
+                      if (count <= 0) count = 1;
+                      ic.deleteSurroundingText(count, 0);
+                  } else {
+                      sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
+                  }
+              }
+
+              private String getSymbolFor(String key) {
+                  switch (key.toLowerCase()) {
+                      case "q": return "1"; case "w": return "2"; case "e": return "3";
+                      case "r": return "4"; case "t": return "5"; case "y": return "6";
+                      case "u": return "7"; case "i": return "8"; case "o": return "9";
+                      case "p": return "0"; case "a": return "@"; case "s": return "#";
+                      case "d": return "$"; case "f": return "%"; case "g": return "&";
+                      case "h": return "*"; case "j": return "-"; case "k": return "+";
+                      case "l": return "/"; case "z": return "!"; case "x": return "?";
+                      case "c": return "\""; case "v": return "'"; case "b": return ":";
+                      case "n": return ";"; case "m": return ","; default: return null;
+                  }
               }
 
               private void handleKeyPress(String key) {
@@ -524,14 +966,8 @@ jobs:
                   if (ic == null) return;
 
                   switch (key) {
-                      case "DEL":
-                          sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
-                          break;
                       case "ENTER":
                           sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER);
-                          break;
-                      case "SPACE":
-                          ic.commitText(" ", 1);
                           break;
                       case "SHIFT":
                           isCaps = !isCaps;
@@ -551,12 +987,27 @@ jobs:
                   }
               }
 
-              private void toggleVoiceTyping() {
-                  if (isRecording) {
-                      stopRecordingAndSend();
-                  } else {
-                      startRecording();
-                  }
+              // --- Hold-to-Talk Mic ---
+              private void setupHoldToTalk(Button mic) {
+                  mic.setOnTouchListener((v, event) -> {
+                      switch (event.getAction()) {
+                          case MotionEvent.ACTION_DOWN:
+                              recordStartTime = System.currentTimeMillis();
+                              startRecording();
+                              return true;
+                          case MotionEvent.ACTION_UP:
+                          case MotionEvent.ACTION_CANCEL:
+                              long duration = System.currentTimeMillis() - recordStartTime;
+                              if (duration < 350) {
+                                  statusText.setText("Hold while talking");
+                                  cancelRecording();
+                              } else {
+                                  stopRecordingAndSend();
+                              }
+                              return true;
+                      }
+                      return false;
+                  });
               }
 
               private void startRecording() {
@@ -585,33 +1036,39 @@ jobs:
                       mediaRecorder.start();
 
                       isRecording = true;
-                      micButton.setText("⏹️ Stop");
-                      statusText.setText("🔴 Listening... Tap Stop when done");
+                      micButton.setText("🔴 Release");
+                      statusText.setText("Listening...");
                   } catch (Exception e) {
                       statusText.setText("Mic Error: " + e.getMessage());
                       isRecording = false;
-                      micButton.setText("🎙️ Voice");
+                      micButton.setText("🎙️ Hold");
                   }
+              }
+
+              private void cancelRecording() {
+                  isRecording = false;
+                  micButton.setText("🎙️ Hold");
+                  if (mediaRecorder != null) {
+                      try { mediaRecorder.reset(); mediaRecorder.release(); } catch (Exception ignored) {}
+                      mediaRecorder = null;
+                  }
+                  File audioFile = new File(getCacheDir(), "voice_input.m4a");
+                  if (audioFile.exists()) audioFile.delete();
               }
 
               private void stopRecordingAndSend() {
                   isRecording = false;
-                  micButton.setText("🎙️ Voice");
+                  micButton.setText("🎙️ Hold");
                   statusText.setText("⏳ Transcribing...");
 
                   if (mediaRecorder != null) {
                       try {
                           mediaRecorder.stop();
                       } catch (RuntimeException ignored) {
-                          statusText.setText("⚠️ Tap held too short");
-                          mediaRecorder.reset();
-                          mediaRecorder.release();
-                          mediaRecorder = null;
+                          cancelRecording();
                           return;
                       }
-                      try {
-                          mediaRecorder.release();
-                      } catch (Exception ignored) {}
+                      try { mediaRecorder.release(); } catch (Exception ignored) {}
                       mediaRecorder = null;
                   }
 
@@ -622,7 +1079,7 @@ jobs:
                   SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
                   String apiKey = prefs.getString("api_key", "").trim();
                   String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
-                  String prompt = prefs.getString("prompt", "Transcribe the audio verbatim with correct punctuation.").trim();
+                  String prompt = prefs.getString("prompt", "Transcribe the audio verbatim in the spoken language with proper punctuation.").trim();
 
                   if (apiKey.isEmpty()) {
                       statusText.setText("⚠️ API Key missing! Tap ⚙️");
@@ -638,7 +1095,7 @@ jobs:
                           }
 
                           byte[] audioBytes = readFileToBytes(audioFile);
-                          if (audioBytes == null || audioBytes.length == 0) {
+                          if (audioBytes == null || audioBytes.length() == 0) {
                               mainHandler.post(() -> statusText.setText("⚠️ File read error"));
                               return;
                           }
@@ -754,15 +1211,6 @@ jobs:
               }
           }
           EOF
-
-      - name: Save Scaffolded Project to Repo
-        continue-on-error: true
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Scaffold Gemini Keyboard project files [skip ci]" || echo "No files to commit"
-          git push || echo "Push skipped"
 
       - name: Build Debug APK
         run: |
