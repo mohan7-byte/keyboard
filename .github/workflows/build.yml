@@ -85,8 +85,8 @@ jobs:
                   applicationId "com.gemini.keyboard"
                   minSdk 26
                   targetSdk 34
-                  versionCode 2
-                  versionName "2.0"
+                  versionCode 3
+                  versionName "3.0"
               }
 
               buildTypes {
@@ -161,7 +161,7 @@ jobs:
           <resources>
               <style name="Theme.GeminiApp" parent="Theme.AppCompat.Light.DarkActionBar">
                   <item name="colorPrimary">#0284C7</item>
-                  <item name="colorPrimaryDark">#0369A1</item>
+                  <item name="colorPrimaryDark">#0F172A</item>
                   <item name="colorAccent">#38BDF8</item>
               </style>
           </resources>
@@ -178,7 +178,7 @@ jobs:
           </input-method>
           EOF
 
-          # 7. SettingsActivity.java
+          # 7. SettingsActivity.java (Redesigned Modern Dark Card UI)
           cat << 'EOF' > app/src/main/java/com/gemini/keyboard/SettingsActivity.java
           package com.gemini.keyboard;
 
@@ -188,8 +188,13 @@ jobs:
           import android.content.SharedPreferences;
           import android.content.pm.PackageManager;
           import android.graphics.Color;
+          import android.graphics.drawable.GradientDrawable;
           import android.os.Bundle;
           import android.provider.Settings;
+          import android.util.TypedValue;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.view.ViewGroup;
           import android.view.inputmethod.InputMethodManager;
           import android.widget.Button;
           import android.widget.EditText;
@@ -205,102 +210,200 @@ jobs:
               private static final int REQ_MIC = 200;
               private EditText apiKeyEdit;
               private EditText modelEdit;
-              private EditText promptEdit;
+              private EditText triggerWordEdit;
               private SharedPreferences prefs;
+
+              private int dpToPx(int dp) {
+                  return (int) (dp * getResources().getDisplayMetrics().density);
+              }
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
-                  setTitle("Gemini Keyboard Setup");
+                  if (getSupportActionBar() != null) {
+                      getSupportActionBar().setTitle("Gemini Keyboard");
+                      getSupportActionBar().setElevation(0);
+                  }
 
                   prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
 
                   ScrollView scrollView = new ScrollView(this);
+                  scrollView.setBackgroundColor(Color.parseColor("#09090B"));
+
                   LinearLayout root = new LinearLayout(this);
                   root.setOrientation(LinearLayout.VERTICAL);
-                  int pad = (int) (18 * getResources().getDisplayMetrics().density);
-                  root.setPadding(pad, pad, pad, pad);
+                  root.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(24));
 
-                  TextView header = new TextView(this);
-                  header.setText("Configure your Gemini AI Keyboard.\nYour API key is saved locally.\n");
-                  header.setTextSize(14);
-                  header.setTextColor(Color.DKGRAY);
-                  root.addView(header);
+                  // --- Header Card ---
+                  LinearLayout headerCard = createCard();
+                  TextView title = new TextView(this);
+                  title.setText("✨ AI Keyboard Config");
+                  title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+                  title.setTextColor(Color.WHITE);
+                  title.setTypeface(null, android.graphics.Typeface.BOLD);
+                  headerCard.addView(title);
 
-                  TextView keyLabel = new TextView(this);
-                  keyLabel.setText("1. Gemini API Key:");
-                  keyLabel.setTextSize(16);
-                  root.addView(keyLabel);
+                  TextView subtitle = new TextView(this);
+                  subtitle.setText("Powered directly by your Gemini API key. Speak naturally or use trigger commands to answer anything instantly.");
+                  subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                  subtitle.setTextColor(Color.parseColor("#A1A1AA"));
+                  subtitle.setPadding(0, dpToPx(6), 0, 0);
+                  headerCard.addView(subtitle);
+                  root.addView(headerCard);
 
-                  apiKeyEdit = new EditText(this);
-                  apiKeyEdit.setHint("Paste your Google AI Studio API key");
+                  // --- AI Settings Card ---
+                  LinearLayout aiCard = createCard();
+                  TextView aiCardTitle = createSectionTitle("AI & Voice Engine");
+                  aiCard.addView(aiCardTitle);
+
+                  // 1. API Key
+                  aiCard.addView(createFieldLabel("Google AI Studio API Key"));
+                  apiKeyEdit = createStyledInput("Paste your API Key (AIzaSy...)");
                   apiKeyEdit.setText(prefs.getString("api_key", ""));
-                  root.addView(apiKeyEdit);
+                  aiCard.addView(apiKeyEdit);
 
-                  TextView modelLabel = new TextView(this);
-                  modelLabel.setText("\n2. Gemini Model:");
-                  modelLabel.setTextSize(16);
-                  root.addView(modelLabel);
-
-                  modelEdit = new EditText(this);
-                  modelEdit.setHint("e.g. gemini-2.0-flash");
+                  // 2. Model
+                  aiCard.addView(createFieldLabel("Gemini Model"));
+                  modelEdit = createStyledInput("e.g. gemini-2.0-flash");
                   modelEdit.setText(prefs.getString("model_name", "gemini-2.0-flash"));
-                  root.addView(modelEdit);
+                  aiCard.addView(modelEdit);
 
-                  TextView promptLabel = new TextView(this);
-                  promptLabel.setText("\n3. Default Voice Instructions:");
-                  promptLabel.setTextSize(16);
-                  root.addView(promptLabel);
+                  // 3. Custom Trigger Word
+                  aiCard.addView(createFieldLabel("Custom Action Trigger Word"));
+                  TextView triggerDesc = new TextView(this);
+                  triggerDesc.setText("Start your voice command with this word (e.g. 'Gemini, calculate 18% tip') to answer anything directly.");
+                  triggerDesc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                  triggerDesc.setTextColor(Color.parseColor("#71717A"));
+                  triggerDesc.setPadding(0, 0, 0, dpToPx(4));
+                  aiCard.addView(triggerDesc);
 
-                  promptEdit = new EditText(this);
-                  promptEdit.setText(prefs.getString("prompt", "Transcribe the audio verbatim in the spoken language with proper punctuation. Output ONLY the raw transcript text with no explanations, no filler words, and no markdown."));
-                  root.addView(promptEdit);
+                  triggerWordEdit = createStyledInput("e.g. Gemini, Jarvis, Computer");
+                  triggerWordEdit.setText(prefs.getString("trigger_word", "Gemini"));
+                  aiCard.addView(triggerWordEdit);
 
+                  // Save Button
                   Button saveBtn = new Button(this);
                   saveBtn.setText("💾 Save Configuration");
+                  saveBtn.setTextColor(Color.WHITE);
+                  saveBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+                  GradientDrawable saveBg = new GradientDrawable();
+                  saveBg.setColor(Color.parseColor("#0284C7"));
+                  saveBg.setCornerRadius(dpToPx(8));
+                  saveBtn.setBackground(saveBg);
+                  LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(46));
+                  saveLp.setMargins(0, dpToPx(16), 0, dpToPx(4));
+                  saveBtn.setLayoutParams(saveLp);
                   saveBtn.setOnClickListener(v -> {
                       prefs.edit()
                           .putString("api_key", apiKeyEdit.getText().toString().trim())
                           .putString("model_name", modelEdit.getText().toString().trim())
-                          .putString("prompt", promptEdit.getText().toString().trim())
+                          .putString("trigger_word", triggerWordEdit.getText().toString().trim())
                           .apply();
-                      Toast.makeText(this, "Settings saved!", Toast.LENGTH_SHORT).show();
+                      Toast.makeText(this, "Settings successfully saved!", Toast.LENGTH_SHORT).show();
                   });
-                  root.addView(saveBtn);
+                  aiCard.addView(saveBtn);
 
-                  Button permBtn = new Button(this);
-                  permBtn.setText("🎙️ Step A: Grant Mic Permission");
-                  permBtn.setOnClickListener(v -> {
+                  root.addView(aiCard);
+
+                  // --- Setup Steps Card ---
+                  LinearLayout stepsCard = createCard();
+                  stepsCard.addView(createSectionTitle("System Setup"));
+
+                  Button permBtn = createStepButton("1. Grant Microphone Permission", v -> {
                       if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                           ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
                       } else {
                           Toast.makeText(this, "Microphone permission is already granted!", Toast.LENGTH_SHORT).show();
                       }
                   });
-                  root.addView(permBtn);
+                  stepsCard.addView(permBtn);
 
-                  Button enableBtn = new Button(this);
-                  enableBtn.setText("⌨️ Step B: Enable in System Keyboards");
-                  enableBtn.setOnClickListener(v -> {
+                  Button enableBtn = createStepButton("2. Enable in System Keyboards", v -> {
                       startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS));
                   });
-                  root.addView(enableBtn);
+                  stepsCard.addView(enableBtn);
 
-                  Button switchBtn = new Button(this);
-                  switchBtn.setText("✨ Step C: Select Active Keyboard");
-                  switchBtn.setOnClickListener(v -> {
+                  Button switchBtn = createStepButton("3. Select Active Keyboard", v -> {
                       InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                       if (imm != null) imm.showInputMethodPicker();
                   });
-                  root.addView(switchBtn);
+                  stepsCard.addView(switchBtn);
+
+                  root.addView(stepsCard);
 
                   scrollView.addView(root);
                   setContentView(scrollView);
               }
+
+              private LinearLayout createCard() {
+                  LinearLayout card = new LinearLayout(this);
+                  card.setOrientation(LinearLayout.VERTICAL);
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(Color.parseColor("#18181B"));
+                  bg.setCornerRadius(dpToPx(12));
+                  bg.setStroke(dpToPx(1), Color.parseColor("#27272A"));
+                  card.setBackground(bg);
+                  card.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16));
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                  lp.setMargins(0, 0, 0, dpToPx(16));
+                  card.setLayoutParams(lp);
+                  return card;
+              }
+
+              private TextView createSectionTitle(String title) {
+                  TextView tv = new TextView(this);
+                  tv.setText(title);
+                  tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+                  tv.setTextColor(Color.WHITE);
+                  tv.setTypeface(null, android.graphics.Typeface.BOLD);
+                  tv.setPadding(0, 0, 0, dpToPx(10));
+                  return tv;
+              }
+
+              private TextView createFieldLabel(String label) {
+                  TextView tv = new TextView(this);
+                  tv.setText(label);
+                  tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                  tv.setTextColor(Color.parseColor("#D4D4D8"));
+                  tv.setTypeface(null, android.graphics.Typeface.BOLD);
+                  tv.setPadding(0, dpToPx(10), 0, dpToPx(4));
+                  return tv;
+              }
+
+              private EditText createStyledInput(String hint) {
+                  EditText et = new EditText(this);
+                  et.setHint(hint);
+                  et.setHintTextColor(Color.parseColor("#52525B"));
+                  et.setTextColor(Color.WHITE);
+                  et.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                  GradientDrawable inputBg = new GradientDrawable();
+                  inputBg.setColor(Color.parseColor("#27272A"));
+                  inputBg.setCornerRadius(dpToPx(8));
+                  et.setBackground(inputBg);
+                  et.setPadding(dpToPx(12), dpToPx(10), dpToPx(12), dpToPx(10));
+                  return et;
+              }
+
+              private Button createStepButton(String text, View.OnClickListener listener) {
+                  Button btn = new Button(this);
+                  btn.setText(text);
+                  btn.setTextColor(Color.parseColor("#E4E4E7"));
+                  btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                  btn.setAllCaps(false);
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setColor(Color.parseColor("#27272A"));
+                  bg.setCornerRadius(dpToPx(8));
+                  btn.setBackground(bg);
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(42));
+                  lp.setMargins(0, dpToPx(6), 0, dpToPx(4));
+                  btn.setLayoutParams(lp);
+                  btn.setOnClickListener(listener);
+                  return btn;
+              }
           }
           EOF
 
-          # 8. GeminiInputMethodService.java
+          # 8. GeminiInputMethodService.java (Action Mode + Gestures + Clipboard + AI)
           cat << 'EOF' > app/src/main/java/com/gemini/keyboard/GeminiInputMethodService.java
           package com.gemini.keyboard;
 
@@ -987,7 +1090,7 @@ jobs:
                   }
               }
 
-              // --- Hold-to-Talk Mic ---
+              // --- Hold-to-Talk Mic with Action Mode ---
               private void setupHoldToTalk(Button mic) {
                   mic.setOnTouchListener((v, event) -> {
                       switch (event.getAction()) {
@@ -1059,7 +1162,7 @@ jobs:
               private void stopRecordingAndSend() {
                   isRecording = false;
                   micButton.setText("🎙️ Hold");
-                  statusText.setText("⏳ Transcribing...");
+                  statusText.setText("⏳ Processing...");
 
                   if (mediaRecorder != null) {
                       try {
@@ -1079,12 +1182,15 @@ jobs:
                   SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
                   String apiKey = prefs.getString("api_key", "").trim();
                   String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
-                  String prompt = prefs.getString("prompt", "Transcribe the audio verbatim in the spoken language with proper punctuation.").trim();
+                  String triggerWord = prefs.getString("trigger_word", "Gemini").trim();
+                  if (triggerWord.isEmpty()) triggerWord = "Gemini";
 
                   if (apiKey.isEmpty()) {
                       statusText.setText("⚠️ API Key missing! Tap ⚙️");
                       return;
                   }
+
+                  final String activeTrigger = triggerWord;
 
                   new Thread(() -> {
                       try {
@@ -1102,13 +1208,18 @@ jobs:
 
                           String base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP);
 
+                          // Intelligent Action vs Dictation Dual System Prompt
+                          String systemInstruction = "You are an intelligent input method voice engine. Analyze the spoken audio:\n"
+                              + "1. ACTION MODE: If the speaker starts by addressing or saying the trigger word '" + activeTrigger + "' (or common phonetic variations), they are giving you a command, calculation, question, translation, or text generation task. Execute the task or answer the question thoroughly and concisely. Output ONLY the direct answer/result/drafted text. DO NOT include greetings, commentary, quotes, or markdown.\n"
+                              + "2. DICTATION MODE: If the speaker does NOT begin with '" + activeTrigger + "', transcribe their speech verbatim in the spoken language with proper punctuation and formatting. Output ONLY the raw transcript.";
+
                           JSONObject requestJson = new JSONObject();
                           JSONArray contents = new JSONArray();
                           JSONObject content = new JSONObject();
                           JSONArray parts = new JSONArray();
 
                           JSONObject textPart = new JSONObject();
-                          textPart.put("text", prompt);
+                          textPart.put("text", systemInstruction);
                           parts.put(textPart);
 
                           JSONObject inlineData = new JSONObject();
@@ -1124,7 +1235,7 @@ jobs:
                           requestJson.put("contents", contents);
 
                           JSONObject genConfig = new JSONObject();
-                          genConfig.put("temperature", 0.0);
+                          genConfig.put("temperature", 0.1);
                           requestJson.put("generationConfig", genConfig);
 
                           URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey);
@@ -1176,7 +1287,7 @@ jobs:
                                           if (ic != null && !text.isEmpty()) {
                                               ic.commitText(text + " ", 1);
                                           }
-                                          statusText.setText("✅ Ready");
+                                          statusText.setText("✅ Done");
                                       });
                                       return;
                                   }
