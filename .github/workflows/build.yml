@@ -253,7 +253,7 @@ jobs:
                   root.addView(promptLabel);
 
                   promptEdit = new EditText(this);
-                  promptEdit.setText(prefs.getString("prompt", "Transcribe the audio verbatim in the spoken language with proper punctuation. Output ONLY the raw transcript text with no explanations, no filler, and no markdown."));
+                  promptEdit.setText(prefs.getString("prompt", "Transcribe the audio verbatim in the spoken language with proper punctuation. Output ONLY the raw transcript text with no explanations, no filler words, and no markdown."));
                   root.addView(promptEdit);
 
                   Button saveBtn = new Button(this);
@@ -1095,7 +1095,7 @@ jobs:
                           }
 
                           byte[] audioBytes = readFileToBytes(audioFile);
-                          if (audioBytes == null || audioBytes.length() == 0) {
+                          if (audioBytes == null || audioBytes.length == 0) {
                               mainHandler.post(() -> statusText.setText("⚠️ File read error"));
                               return;
                           }
