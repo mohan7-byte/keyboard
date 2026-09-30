@@ -37,6 +37,10 @@ jobs:
           mkdir -p app/src/main/java/com/gemini/keyboard
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/xml
+          mkdir -p app/src/main/res/drawable
+          if [ -f "icon.png" ]; then
+            cp icon.png app/src/main/res/drawable/app_icon.png
+          fi
 
           # 1. settings.gradle
           cat << 'EOF' > settings.gradle
@@ -85,8 +89,8 @@ jobs:
                   applicationId "com.gemini.keyboard"
                   minSdk 26
                   targetSdk 34
-                  versionCode 3
-                  versionName "3.0"
+                  versionCode 4
+                  versionName "4.0"
               }
 
               buildTypes {
@@ -106,6 +110,7 @@ jobs:
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.7.0'
               implementation 'com.google.android.material:material:1.12.0'
+              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
           }
           EOF
 
@@ -119,6 +124,7 @@ jobs:
 
               <application
                   android:allowBackup="true"
+                  android:icon="@drawable/app_icon"
                   android:label="Gemini Keyboard"
                   android:supportsRtl="true"
                   android:theme="@style/Theme.GeminiApp">
@@ -178,7 +184,7 @@ jobs:
           </input-method>
           EOF
 
-          # 7. SettingsActivity.java (Redesigned Modern Dark Card UI)
+          # 7. SettingsActivity.java (Masked Key + Tap/Hold Setting + Clean Dark UI)
           cat << 'EOF' > app/src/main/java/com/gemini/keyboard/SettingsActivity.java
           package com.gemini.keyboard;
 
@@ -191,6 +197,7 @@ jobs:
           import android.graphics.drawable.GradientDrawable;
           import android.os.Bundle;
           import android.provider.Settings;
+          import android.text.InputType;
           import android.util.TypedValue;
           import android.view.Gravity;
           import android.view.View;
@@ -199,6 +206,8 @@ jobs:
           import android.widget.Button;
           import android.widget.EditText;
           import android.widget.LinearLayout;
+          import android.widget.RadioButton;
+          import android.widget.RadioGroup;
           import android.widget.ScrollView;
           import android.widget.TextView;
           import android.widget.Toast;
@@ -211,6 +220,10 @@ jobs:
               private EditText apiKeyEdit;
               private EditText modelEdit;
               private EditText triggerWordEdit;
+              private RadioGroup micModeGroup;
+              private RadioButton rbTap;
+              private RadioButton rbHold;
+              private boolean isKeyVisible = false;
               private SharedPreferences prefs;
 
               private int dpToPx(int dp) {
@@ -234,52 +247,96 @@ jobs:
                   root.setOrientation(LinearLayout.VERTICAL);
                   root.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(24));
 
-                  // --- Header Card ---
+                  // --- Header ---
                   LinearLayout headerCard = createCard();
                   TextView title = new TextView(this);
-                  title.setText("✨ AI Keyboard Config");
+                  title.setText("✨ Gemini Voice Keyboard");
                   title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
                   title.setTextColor(Color.WHITE);
                   title.setTypeface(null, android.graphics.Typeface.BOLD);
                   headerCard.addView(title);
 
                   TextView subtitle = new TextView(this);
-                  subtitle.setText("Powered directly by your Gemini API key. Speak naturally or use trigger commands to answer anything instantly.");
+                  subtitle.setText("Real-time streaming, Hindi Devanagari, voice actions, and clipboard vault.");
                   subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
                   subtitle.setTextColor(Color.parseColor("#A1A1AA"));
                   subtitle.setPadding(0, dpToPx(6), 0, 0);
                   headerCard.addView(subtitle);
                   root.addView(headerCard);
 
-                  // --- AI Settings Card ---
+                  // --- AI Engine Card ---
                   LinearLayout aiCard = createCard();
-                  TextView aiCardTitle = createSectionTitle("AI & Voice Engine");
-                  aiCard.addView(aiCardTitle);
+                  aiCard.addView(createSectionTitle("AI & Voice Engine"));
 
-                  // 1. API Key
-                  aiCard.addView(createFieldLabel("Google AI Studio API Key"));
-                  apiKeyEdit = createStyledInput("Paste your API Key (AIzaSy...)");
+                  // 1. API Key with Eye Toggle
+                  aiCard.addView(createFieldLabel("Google AI Studio API Key (Protected)"));
+                  LinearLayout keyRow = new LinearLayout(this);
+                  keyRow.setOrientation(LinearLayout.HORIZONTAL);
+                  keyRow.setGravity(Gravity.CENTER_VERTICAL);
+
+                  apiKeyEdit = createStyledInput("Paste API Key");
+                  apiKeyEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
                   apiKeyEdit.setText(prefs.getString("api_key", ""));
-                  aiCard.addView(apiKeyEdit);
+                  keyRow.addView(apiKeyEdit, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
 
-                  // 2. Model
+                  Button eyeBtn = new Button(this);
+                  eyeBtn.setText("👁️");
+                  eyeBtn.setTextColor(Color.WHITE);
+                  GradientDrawable eyeBg = new GradientDrawable();
+                  eyeBg.setColor(Color.parseColor("#27272A"));
+                  eyeBg.setCornerRadius(dpToPx(8));
+                  eyeBtn.setBackground(eyeBg);
+                  LinearLayout.LayoutParams eyeLp = new LinearLayout.LayoutParams(dpToPx(44), dpToPx(44));
+                  eyeLp.leftMargin = dpToPx(6);
+                  eyeBtn.setLayoutParams(eyeLp);
+                  eyeBtn.setOnClickListener(v -> {
+                      isKeyVisible = !isKeyVisible;
+                      if (isKeyVisible) {
+                          apiKeyEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+                          eyeBtn.setText("🙈");
+                      } else {
+                          apiKeyEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+                          eyeBtn.setText("👁️");
+                      }
+                      apiKeyEdit.setSelection(apiKeyEdit.getText().length());
+                  });
+                  keyRow.addView(eyeBtn);
+                  aiCard.addView(keyRow);
+
+                  // 2. Model Name
                   aiCard.addView(createFieldLabel("Gemini Model"));
                   modelEdit = createStyledInput("e.g. gemini-2.0-flash");
                   modelEdit.setText(prefs.getString("model_name", "gemini-2.0-flash"));
                   aiCard.addView(modelEdit);
 
-                  // 3. Custom Trigger Word
-                  aiCard.addView(createFieldLabel("Custom Action Trigger Word"));
-                  TextView triggerDesc = new TextView(this);
-                  triggerDesc.setText("Start your voice command with this word (e.g. 'Gemini, calculate 18% tip') to answer anything directly.");
-                  triggerDesc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-                  triggerDesc.setTextColor(Color.parseColor("#71717A"));
-                  triggerDesc.setPadding(0, 0, 0, dpToPx(4));
-                  aiCard.addView(triggerDesc);
-
-                  triggerWordEdit = createStyledInput("e.g. Gemini, Jarvis, Computer");
+                  // 3. Trigger Word
+                  aiCard.addView(createFieldLabel("Action Trigger Word"));
+                  triggerWordEdit = createStyledInput("e.g. Gemini or Jarvis");
                   triggerWordEdit.setText(prefs.getString("trigger_word", "Gemini"));
                   aiCard.addView(triggerWordEdit);
+
+                  // 4. Mic Behavior (Tap vs Hold)
+                  aiCard.addView(createFieldLabel("Microphone Button Mode"));
+                  micModeGroup = new RadioGroup(this);
+                  micModeGroup.setOrientation(LinearLayout.VERTICAL);
+
+                  rbTap = new RadioButton(this);
+                  rbTap.setText("Tap to Talk (Click once to speak, click to finish)");
+                  rbTap.setTextColor(Color.WHITE);
+                  rbTap.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                  micModeGroup.addView(rbTap);
+
+                  rbHold = new RadioButton(this);
+                  rbHold.setText("Hold to Talk (Press & hold while speaking)");
+                  rbHold.setTextColor(Color.WHITE);
+                  rbHold.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                  micModeGroup.addView(rbHold);
+
+                  String currentMode = prefs.getString("mic_mode", "tap");
+                  if (currentMode.equals("hold")) rbHold.setChecked(true);
+                  else rbTap.setChecked(true);
+
+                  aiCard.addView(micModeGroup);
 
                   // Save Button
                   Button saveBtn = new Button(this);
@@ -294,40 +351,38 @@ jobs:
                   saveLp.setMargins(0, dpToPx(16), 0, dpToPx(4));
                   saveBtn.setLayoutParams(saveLp);
                   saveBtn.setOnClickListener(v -> {
+                      String selectedMicMode = rbHold.isChecked() ? "hold" : "tap";
                       prefs.edit()
                           .putString("api_key", apiKeyEdit.getText().toString().trim())
                           .putString("model_name", modelEdit.getText().toString().trim())
                           .putString("trigger_word", triggerWordEdit.getText().toString().trim())
+                          .putString("mic_mode", selectedMicMode)
                           .apply();
-                      Toast.makeText(this, "Settings successfully saved!", Toast.LENGTH_SHORT).show();
+                      Toast.makeText(this, "Settings saved!", Toast.LENGTH_SHORT).show();
                   });
                   aiCard.addView(saveBtn);
-
                   root.addView(aiCard);
 
                   // --- Setup Steps Card ---
                   LinearLayout stepsCard = createCard();
                   stepsCard.addView(createSectionTitle("System Setup"));
 
-                  Button permBtn = createStepButton("1. Grant Microphone Permission", v -> {
+                  stepsCard.addView(createStepButton("1. Grant Microphone Permission", v -> {
                       if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                           ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
                       } else {
                           Toast.makeText(this, "Microphone permission is already granted!", Toast.LENGTH_SHORT).show();
                       }
-                  });
-                  stepsCard.addView(permBtn);
+                  }));
 
-                  Button enableBtn = createStepButton("2. Enable in System Keyboards", v -> {
+                  stepsCard.addView(createStepButton("2. Enable in System Keyboards", v -> {
                       startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS));
-                  });
-                  stepsCard.addView(enableBtn);
+                  }));
 
-                  Button switchBtn = createStepButton("3. Select Active Keyboard", v -> {
+                  stepsCard.addView(createStepButton("3. Select Active Keyboard", v -> {
                       InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                       if (imm != null) imm.showInputMethodPicker();
-                  });
-                  stepsCard.addView(switchBtn);
+                  }));
 
                   root.addView(stepsCard);
 
@@ -403,7 +458,7 @@ jobs:
           }
           EOF
 
-          # 8. GeminiInputMethodService.java (Action Mode + Gestures + Clipboard + AI)
+          # 8. GeminiInputMethodService.java (Real-Time SSE Streaming + Hindi Layout + Clipboard Manager + Voice AI)
           cat << 'EOF' > app/src/main/java/com/gemini/keyboard/GeminiInputMethodService.java
           package com.gemini.keyboard;
 
@@ -435,6 +490,7 @@ jobs:
           import android.widget.EditText;
           import android.widget.HorizontalScrollView;
           import android.widget.LinearLayout;
+          import android.widget.ScrollView;
           import android.widget.TextView;
           import androidx.core.content.ContextCompat;
 
@@ -445,32 +501,55 @@ jobs:
           import java.io.ByteArrayOutputStream;
           import java.io.File;
           import java.io.FileInputStream;
-          import java.io.InputStream;
           import java.io.InputStreamReader;
-          import java.io.OutputStream;
-          import java.net.HttpURLConnection;
-          import java.net.URL;
           import java.nio.charset.StandardCharsets;
           import java.util.ArrayList;
           import java.util.List;
+          import java.util.concurrent.TimeUnit;
+
+          import okhttp3.ConnectionPool;
+          import okhttp3.MediaType;
+          import okhttp3.OkHttpClient;
+          import okhttp3.Request;
+          import okhttp3.RequestBody;
+          import okhttp3.Response;
 
           public class GeminiInputMethodService extends InputMethodService {
               private boolean isCaps = false;
               private boolean isNumberMode = false;
+              private boolean isHindiMode = false;
               private boolean isRecording = false;
+              private boolean isRecordingForAiPrompt = false;
               private long recordStartTime = 0;
 
               private LinearLayout keysContainer;
-              private HorizontalScrollView clipboardBar;
-              private LinearLayout clipboardItemsContainer;
+              private LinearLayout clipboardDrawer;
+              private LinearLayout clipboardItemsLayout;
               private LinearLayout aiPanel;
               private EditText manualAiPromptInput;
               private Button micButton;
+              private Button aiMicButton;
+              private Button langToggleBtn;
               private TextView statusText;
               private Handler mainHandler;
               private MediaRecorder mediaRecorder;
               private final List<Button> letterButtons = new ArrayList<>();
 
+              // Persistent HTTP/2 Client with Connection Pooling
+              private static OkHttpClient httpClient;
+              public static synchronized OkHttpClient getClient() {
+                  if (httpClient == null) {
+                      httpClient = new OkHttpClient.Builder()
+                          .connectionPool(new ConnectionPool(5, 5, TimeUnit.MINUTES))
+                          .connectTimeout(10, TimeUnit.SECONDS)
+                          .readTimeout(25, TimeUnit.SECONDS)
+                          .writeTimeout(15, TimeUnit.SECONDS)
+                          .build();
+                  }
+                  return httpClient;
+              }
+
+              // English QWERTY
               private final String[][] qwertyLetters = {
                   {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
                   {"a", "s", "d", "f", "g", "h", "j", "k", "l"},
@@ -478,6 +557,23 @@ jobs:
                   {"123", ",", "SPACE", ".", "ENTER"}
               };
 
+              // Hindi Devanagari (Consonants & Matras)
+              private final String[][] hindiConsonants = {
+                  {"क", "ख", "ग", "घ", "ङ", "च", "छ", "ज", "झ", "ञ"},
+                  {"ट", "ठ", "ड", "ढ", "ण", "त", "थ", "द", "ध", "न"},
+                  {"SHIFT", "प", "फ", "ब", "भ", "म", "य", "र", "ल", "व", "DEL"},
+                  {"123", "ा", "ि", "ी", "SPACE", "ु", "ू", "्", "ENTER"}
+              };
+
+              // Hindi Devanagari Vowels & Secondary
+              private final String[][] hindiVowels = {
+                  {"अ", "आ", "इ", "ई", "उ", "ऊ", "ऋ", "ए", "ऐ", "ओ", "औ"},
+                  {"श", "ष", "स", "ह", "क्ष", "त्र", "ज्ञ", "श्र", "ड़", "ढ़"},
+                  {"SHIFT", "े", "ै", "ो", "ौ", "ं", "ँ", "ः", "़", "DEL"},
+                  {"123", "।", "?", ",", "SPACE", "!", ".", "ENTER"}
+              };
+
+              // Numbers & Symbols
               private final String[][] qwertyNumbers = {
                   {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
                   {"@", "#", "$", "%", "&", "*", "-", "+", "(", ")"},
@@ -521,33 +617,43 @@ jobs:
                   toolbar.setGravity(Gravity.CENTER_VERTICAL);
                   toolbar.setPadding(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
 
-                  // Hold-to-Talk Mic
+                  // Mic Button (Tap or Hold mode)
                   micButton = new Button(this);
-                  micButton.setText("🎙️ Hold");
                   micButton.setTextColor(Color.WHITE);
                   micButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
                   GradientDrawable micBg = new GradientDrawable();
                   micBg.setColor(Color.parseColor("#0284C7"));
                   micBg.setCornerRadius(dpToPx(6));
                   micButton.setBackground(micBg);
-                  setupHoldToTalk(micButton);
+                  applyMicModeBehavior(micButton);
                   toolbar.addView(micButton, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(36)));
 
                   GradientDrawable barBtnBg = new GradientDrawable();
                   barBtnBg.setColor(Color.parseColor("#27272A"));
                   barBtnBg.setCornerRadius(dpToPx(6));
 
-                  // Clipboard Toggle
+                  // Language Toggle: EN vs हि
+                  langToggleBtn = new Button(this);
+                  langToggleBtn.setText(isHindiMode ? "हि" : "EN");
+                  langToggleBtn.setTextColor(Color.WHITE);
+                  langToggleBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                  langToggleBtn.setBackground(barBtnBg);
+                  LinearLayout.LayoutParams ltp = new LinearLayout.LayoutParams(dpToPx(38), dpToPx(36));
+                  ltp.leftMargin = dpToPx(4);
+                  langToggleBtn.setOnClickListener(v -> toggleLanguage());
+                  toolbar.addView(langToggleBtn, ltp);
+
+                  // Clipboard Drawer Toggle
                   Button clipToggleBtn = new Button(this);
                   clipToggleBtn.setText("📋");
                   clipToggleBtn.setTextColor(Color.WHITE);
                   clipToggleBtn.setBackground(barBtnBg);
                   LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(dpToPx(38), dpToPx(36));
                   clp.leftMargin = dpToPx(4);
-                  clipToggleBtn.setOnClickListener(v -> toggleClipboardBar());
+                  clipToggleBtn.setOnClickListener(v -> toggleClipboardDrawer());
                   toolbar.addView(clipToggleBtn, clp);
 
-                  // AI Polish Toggle
+                  // AI Panel Toggle
                   Button aiToggleBtn = new Button(this);
                   aiToggleBtn.setText("✨ AI");
                   aiToggleBtn.setTextColor(Color.WHITE);
@@ -570,7 +676,7 @@ jobs:
                   stParams.setMargins(dpToPx(4), 0, dpToPx(4), 0);
                   toolbar.addView(statusText, stParams);
 
-                  // Settings
+                  // Settings Button
                   Button settingsBtn = new Button(this);
                   settingsBtn.setText("⚙️");
                   settingsBtn.setTextColor(Color.WHITE);
@@ -597,16 +703,11 @@ jobs:
 
                   rootLayout.addView(toolbar);
 
-                  // Clipboard Drawer (Initially hidden)
-                  clipboardBar = new HorizontalScrollView(this);
-                  clipboardBar.setVisibility(View.GONE);
-                  clipboardBar.setPadding(dpToPx(4), dpToPx(2), dpToPx(4), dpToPx(2));
-                  clipboardItemsContainer = new LinearLayout(this);
-                  clipboardItemsContainer.setOrientation(LinearLayout.HORIZONTAL);
-                  clipboardBar.addView(clipboardItemsContainer);
-                  rootLayout.addView(clipboardBar);
+                  // Clipboard Drawer (Redesigned with Individual Delete & Clear All)
+                  clipboardDrawer = buildClipboardDrawer();
+                  rootLayout.addView(clipboardDrawer);
 
-                  // AI Rewriting Panel (Initially hidden)
+                  // AI Rewriting Panel (Overhauled with Voice Mic & Active Text Grab)
                   aiPanel = buildAiPanel();
                   rootLayout.addView(aiPanel);
 
@@ -619,19 +720,69 @@ jobs:
                   return rootLayout;
               }
 
-              // --- AI Polish & Custom Prompt Panel ---
+              // --- Language Switching ---
+              private void toggleLanguage() {
+                  isHindiMode = !isHindiMode;
+                  isCaps = false;
+                  isNumberMode = false;
+                  langToggleBtn.setText(isHindiMode ? "हि" : "EN");
+                  statusText.setText(isHindiMode ? "हिंदी मोड" : "English Mode");
+                  renderKeyboard();
+              }
+
+              // --- Microphone Mode (Tap vs Hold) ---
+              private void applyMicModeBehavior(Button btn) {
+                  SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
+                  String mode = prefs.getString("mic_mode", "tap");
+
+                  if (mode.equals("hold")) {
+                      btn.setText("🎙️ Hold");
+                      btn.setOnClickListener(null);
+                      btn.setOnTouchListener((v, event) -> {
+                          switch (event.getAction()) {
+                              case MotionEvent.ACTION_DOWN:
+                                  recordStartTime = System.currentTimeMillis();
+                                  startVoiceRecording(false);
+                                  return true;
+                              case MotionEvent.ACTION_UP:
+                              case MotionEvent.ACTION_CANCEL:
+                                  long duration = System.currentTimeMillis() - recordStartTime;
+                                  if (duration < 350) {
+                                      statusText.setText("Hold while talking");
+                                      cancelVoiceRecording();
+                                  } else {
+                                      stopVoiceRecording(false);
+                                  }
+                                  return true;
+                          }
+                          return false;
+                      });
+                  } else {
+                      btn.setText("🎙️ Mic");
+                      btn.setOnTouchListener(null);
+                      btn.setOnClickListener(v -> {
+                          if (isRecording) {
+                              stopVoiceRecording(false);
+                          } else {
+                              startVoiceRecording(false);
+                          }
+                      });
+                  }
+              }
+
+              // --- Overhauled AI Panel with Voice Prompt & Text Grabber ---
               private LinearLayout buildAiPanel() {
                   LinearLayout panel = new LinearLayout(this);
                   panel.setOrientation(LinearLayout.VERTICAL);
                   panel.setVisibility(View.GONE);
                   panel.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4));
 
-                  // Preset chips
+                  // Presets
                   HorizontalScrollView chipScroll = new HorizontalScrollView(this);
                   LinearLayout chipRow = new LinearLayout(this);
                   chipRow.setOrientation(LinearLayout.HORIZONTAL);
 
-                  String[] presets = {"Fix Grammar", "Make Professional", "Make Casual", "Bullet Points", "Translate to English"};
+                  String[] presets = {"Fix Grammar", "Make Formal", "Make Casual", "Translate to Hindi", "Translate to English", "Summarize"};
                   for (String p : presets) {
                       Button chip = new Button(this);
                       chip.setText(p);
@@ -651,14 +802,41 @@ jobs:
                   chipScroll.addView(chipRow);
                   panel.addView(chipScroll);
 
-                  // Manual prompt row
+                  // Action Row: Grab active text & voice prompt
                   LinearLayout manualRow = new LinearLayout(this);
                   manualRow.setOrientation(LinearLayout.HORIZONTAL);
                   manualRow.setGravity(Gravity.CENTER_VERTICAL);
                   manualRow.setPadding(0, dpToPx(4), 0, 0);
 
+                  // Button to grab text from input box or clipboard
+                  Button grabTextBtn = new Button(this);
+                  grabTextBtn.setText("📋 Use App Text");
+                  grabTextBtn.setTextColor(Color.parseColor("#38BDF8"));
+                  grabTextBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                  grabTextBtn.setAllCaps(false);
+                  GradientDrawable grabBg = new GradientDrawable();
+                  grabBg.setColor(Color.parseColor("#18181B"));
+                  grabBg.setStroke(dpToPx(1), Color.parseColor("#38BDF8"));
+                  grabBg.setCornerRadius(dpToPx(6));
+                  grabTextBtn.setBackground(grabBg);
+                  LinearLayout.LayoutParams grp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(36));
+                  grabTextBtn.setOnClickListener(v -> {
+                      InputConnection ic = getCurrentInputConnection();
+                      CharSequence text = ic != null ? ic.getTextBeforeCursor(2000, 0) : null;
+                      if (text == null || text.length() == 0) {
+                          List<String> clips = getClipboardHistory();
+                          if (!clips.isEmpty()) text = clips.get(0);
+                      }
+                      if (text != null && text.length() > 0) {
+                          statusText.setText("Loaded text (" + text.length() + " chars)");
+                      } else {
+                          statusText.setText("No text found");
+                      }
+                  });
+                  manualRow.addView(grabTextBtn, grp);
+
                   manualAiPromptInput = new EditText(this);
-                  manualAiPromptInput.setHint("Or type manual prompt (e.g. summarize in 10 words)");
+                  manualAiPromptInput.setHint("Type prompt or tap 🎙️");
                   manualAiPromptInput.setHintTextColor(Color.parseColor("#71717A"));
                   manualAiPromptInput.setTextColor(Color.WHITE);
                   manualAiPromptInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
@@ -668,11 +846,34 @@ jobs:
                   inputBg.setCornerRadius(dpToPx(6));
                   manualAiPromptInput.setBackground(inputBg);
                   manualAiPromptInput.setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6));
-                  manualRow.addView(manualAiPromptInput, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+                  LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
+                  etLp.leftMargin = dpToPx(4);
+                  manualRow.addView(manualAiPromptInput, etLp);
 
+                  // AI Voice Prompt Button
+                  aiMicButton = new Button(this);
+                  aiMicButton.setText("🎙️");
+                  aiMicButton.setTextColor(Color.WHITE);
+                  GradientDrawable aiMicBg = new GradientDrawable();
+                  aiMicBg.setColor(Color.parseColor("#0284C7"));
+                  aiMicBg.setCornerRadius(dpToPx(6));
+                  aiMicButton.setBackground(aiMicBg);
+                  LinearLayout.LayoutParams amp = new LinearLayout.LayoutParams(dpToPx(38), dpToPx(36));
+                  amp.leftMargin = dpToPx(4);
+                  aiMicButton.setOnClickListener(v -> {
+                      if (isRecording) {
+                          stopVoiceRecording(true);
+                      } else {
+                          startVoiceRecording(true);
+                      }
+                  });
+                  manualRow.addView(aiMicButton, amp);
+
+                  // Apply Custom Prompt Button
                   Button runManualBtn = new Button(this);
                   runManualBtn.setText("Apply");
                   runManualBtn.setTextColor(Color.WHITE);
+                  runManualBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
                   GradientDrawable runBg = new GradientDrawable();
                   runBg.setColor(Color.parseColor("#0284C7"));
                   runBg.setCornerRadius(dpToPx(6));
@@ -680,11 +881,12 @@ jobs:
                   LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(36));
                   rlp.leftMargin = dpToPx(4);
                   runManualBtn.setOnClickListener(v -> {
-                      String customInstruction = manualAiPromptInput.getText().toString().trim();
-                      if (!customInstruction.isEmpty()) rewriteWithGemini(customInstruction);
+                      String prompt = manualAiPromptInput.getText().toString().trim();
+                      if (!prompt.isEmpty()) rewriteWithGemini(prompt);
                   });
                   manualRow.addView(runManualBtn, rlp);
 
+                  // Close Button
                   Button closeAiBtn = new Button(this);
                   closeAiBtn.setText("✖");
                   closeAiBtn.setTextColor(Color.WHITE);
@@ -692,7 +894,7 @@ jobs:
                   closeBg.setColor(Color.parseColor("#27272A"));
                   closeBg.setCornerRadius(dpToPx(6));
                   closeAiBtn.setBackground(closeBg);
-                  LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(dpToPx(36), dpToPx(36));
+                  LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(dpToPx(34), dpToPx(36));
                   clp.leftMargin = dpToPx(4);
                   closeAiBtn.setOnClickListener(v -> panel.setVisibility(View.GONE));
                   manualRow.addView(closeAiBtn, clp);
@@ -705,161 +907,136 @@ jobs:
                   if (aiPanel.getVisibility() == View.VISIBLE) {
                       aiPanel.setVisibility(View.GONE);
                   } else {
-                      clipboardBar.setVisibility(View.GONE);
+                      clipboardDrawer.setVisibility(View.GONE);
                       aiPanel.setVisibility(View.VISIBLE);
                   }
               }
 
-              private void rewriteWithGemini(String instruction) {
-                  InputConnection ic = getCurrentInputConnection();
-                  if (ic == null) return;
+              // --- Redesigned Clipboard Drawer with Delete & Clear All ---
+              private LinearLayout buildClipboardDrawer() {
+                  LinearLayout drawer = new LinearLayout(this);
+                  drawer.setOrientation(LinearLayout.VERTICAL);
+                  drawer.setVisibility(View.GONE);
+                  drawer.setPadding(dpToPx(6), dpToPx(4), dpToPx(6), dpToPx(4));
 
-                  CharSequence before = ic.getTextBeforeCursor(3000, 0);
-                  CharSequence after = ic.getTextAfterCursor(3000, 0);
-                  String fullText = (before != null ? before.toString() : "") + (after != null ? after.toString() : "");
+                  // Top action bar
+                  LinearLayout header = new LinearLayout(this);
+                  header.setOrientation(LinearLayout.HORIZONTAL);
+                  header.setGravity(Gravity.CENTER_VERTICAL);
 
-                  if (fullText.trim().isEmpty()) {
-                      statusText.setText("⚠️ Text box is empty");
-                      return;
-                  }
+                  TextView label = new TextView(this);
+                  label.setText("📋 Saved Clips");
+                  label.setTextColor(Color.WHITE);
+                  label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                  label.setTypeface(null, android.graphics.Typeface.BOLD);
+                  header.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
 
-                  final int beforeLen = before != null ? before.length() : 0;
-                  final int afterLen = after != null ? after.length() : 0;
+                  Button clearAllBtn = new Button(this);
+                  clearAllBtn.setText("Clear All");
+                  clearAllBtn.setTextColor(Color.parseColor("#EF4444"));
+                  clearAllBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                  clearAllBtn.setAllCaps(false);
+                  GradientDrawable caBg = new GradientDrawable();
+                  caBg.setColor(Color.parseColor("#27272A"));
+                  caBg.setCornerRadius(dpToPx(6));
+                  clearAllBtn.setBackground(caBg);
+                  clearAllBtn.setOnClickListener(v -> {
+                      getSharedPreferences("gemini_clipboard", MODE_PRIVATE).edit().putString("clips", "[]").apply();
+                      refreshClipboardUI();
+                  });
+                  header.addView(clearAllBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(32)));
 
-                  statusText.setText("✨ AI Rewriting...");
+                  Button closeClipBtn = new Button(this);
+                  closeClipBtn.setText("✖");
+                  closeClipBtn.setTextColor(Color.WHITE);
+                  closeClipBtn.setBackground(caBg);
+                  LinearLayout.LayoutParams cclp = new LinearLayout.LayoutParams(dpToPx(32), dpToPx(32));
+                  cclp.leftMargin = dpToPx(4);
+                  closeClipBtn.setOnClickListener(v -> drawer.setVisibility(View.GONE));
+                  header.addView(closeClipBtn, cclp);
 
-                  SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
-                  String apiKey = prefs.getString("api_key", "").trim();
-                  String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
+                  drawer.addView(header);
 
-                  if (apiKey.isEmpty()) {
-                      statusText.setText("⚠️ API Key missing! Tap ⚙️");
-                      return;
-                  }
+                  // Vertical Scrollable items list
+                  ScrollView sv = new ScrollView(this);
+                  LinearLayout.LayoutParams svLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(130));
+                  svLp.topMargin = dpToPx(4);
+                  sv.setLayoutParams(svLp);
 
-                  new Thread(() -> {
-                      try {
-                          JSONObject requestJson = new JSONObject();
-                          JSONArray contents = new JSONArray();
-                          JSONObject content = new JSONObject();
-                          JSONArray parts = new JSONArray();
+                  clipboardItemsLayout = new LinearLayout(this);
+                  clipboardItemsLayout.setOrientation(LinearLayout.VERTICAL);
+                  sv.addView(clipboardItemsLayout);
 
-                          JSONObject textPart = new JSONObject();
-                          String prompt = "Instruction: " + instruction + "\nOutput ONLY the rewritten text without commentary, quotes, or markdown.\n\nOriginal Text:\n" + fullText;
-                          textPart.put("text", prompt);
-                          parts.put(textPart);
-
-                          content.put("parts", parts);
-                          contents.put(content);
-                          requestJson.put("contents", contents);
-
-                          JSONObject genConfig = new JSONObject();
-                          genConfig.put("temperature", 0.3);
-                          requestJson.put("generationConfig", genConfig);
-
-                          URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey);
-                          HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                          conn.setRequestMethod("POST");
-                          conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                          conn.setDoOutput(true);
-                          conn.setConnectTimeout(15000);
-                          conn.setReadTimeout(20000);
-
-                          try (OutputStream os = conn.getOutputStream()) {
-                              byte[] input = requestJson.toString().getBytes(StandardCharsets.UTF_8);
-                              os.write(input, 0, input.length);
-                          }
-
-                          int responseCode = conn.getResponseCode();
-                          InputStream is = (responseCode >= 200 && responseCode < 300) ? conn.getInputStream() : conn.getErrorStream();
-                          StringBuilder responseBuilder = new StringBuilder();
-                          try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-                              String line;
-                              while ((line = br.readLine()) != null) responseBuilder.append(line);
-                          }
-
-                          String respStr = responseBuilder.toString();
-                          if (responseCode != 200) {
-                              mainHandler.post(() -> statusText.setText("❌ AI Error: HTTP " + responseCode));
-                              return;
-                          }
-
-                          JSONObject respJson = new JSONObject(respStr);
-                          JSONArray candidates = respJson.optJSONArray("candidates");
-                          if (candidates != null && candidates.length() > 0) {
-                              JSONObject cand = candidates.getJSONObject(0);
-                              JSONObject candContent = cand.optJSONObject("content");
-                              if (candContent != null) {
-                                  JSONArray candParts = candContent.optJSONArray("parts");
-                                  if (candParts != null && candParts.length() > 0) {
-                                      String rewritten = candParts.getJSONObject(0).optString("text", "").trim();
-                                      mainHandler.post(() -> {
-                                          InputConnection liveIc = getCurrentInputConnection();
-                                          if (liveIc != null && !rewritten.isEmpty()) {
-                                              liveIc.deleteSurroundingText(beforeLen, afterLen);
-                                              liveIc.commitText(rewritten, 1);
-                                          }
-                                          statusText.setText("✅ AI Rewritten!");
-                                          aiPanel.setVisibility(View.GONE);
-                                      });
-                                      return;
-                                  }
-                              }
-                          }
-                          mainHandler.post(() -> statusText.setText("No result from AI"));
-                      } catch (Exception e) {
-                          mainHandler.post(() -> statusText.setText("❌ " + e.getMessage()));
-                      }
-                  }).start();
+                  drawer.addView(sv);
+                  return drawer;
               }
 
-              // --- Persistent Clipboard ---
-              private void toggleClipboardBar() {
-                  if (clipboardBar.getVisibility() == View.VISIBLE) {
-                      clipboardBar.setVisibility(View.GONE);
+              private void toggleClipboardDrawer() {
+                  if (clipboardDrawer.getVisibility() == View.VISIBLE) {
+                      clipboardDrawer.setVisibility(View.GONE);
                   } else {
                       aiPanel.setVisibility(View.GONE);
                       refreshClipboardUI();
-                      clipboardBar.setVisibility(View.VISIBLE);
+                      clipboardDrawer.setVisibility(View.VISIBLE);
                   }
               }
 
               private void refreshClipboardUI() {
-                  clipboardItemsContainer.removeAllViews();
+                  clipboardItemsLayout.removeAllViews();
                   List<String> items = getClipboardHistory();
                   if (items.isEmpty()) {
                       TextView emptyText = new TextView(this);
-                      emptyText.setText("No copied items yet");
-                      emptyText.setTextColor(Color.DKGRAY);
-                      emptyText.setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8));
-                      clipboardItemsContainer.addView(emptyText);
+                      emptyText.setText("Clipboard history is empty");
+                      emptyText.setTextColor(Color.parseColor("#71717A"));
+                      emptyText.setPadding(dpToPx(8), dpToPx(12), dpToPx(8), dpToPx(12));
+                      clipboardItemsLayout.addView(emptyText);
                       return;
                   }
 
                   for (String item : items) {
-                      Button chip = new Button(this);
-                      chip.setText(item.replace("\n", " "));
-                      chip.setAllCaps(false);
-                      chip.setTextColor(Color.WHITE);
-                      chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-                      chip.setSingleLine(true);
-                      chip.setEllipsize(TextUtils.TruncateAt.END);
+                      LinearLayout row = new LinearLayout(this);
+                      row.setOrientation(LinearLayout.HORIZONTAL);
+                      row.setGravity(Gravity.CENTER_VERTICAL);
+                      GradientDrawable rowBg = new GradientDrawable();
+                      rowBg.setColor(Color.parseColor("#18181B"));
+                      rowBg.setCornerRadius(dpToPx(6));
+                      row.setBackground(rowBg);
+                      LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                      rLp.setMargins(0, dpToPx(2), 0, dpToPx(2));
+                      row.setLayoutParams(rLp);
+                      row.setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6));
 
-                      GradientDrawable chipBg = new GradientDrawable();
-                      chipBg.setColor(Color.parseColor("#27272A"));
-                      chipBg.setCornerRadius(dpToPx(8));
-                      chip.setBackground(chipBg);
-
-                      LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dpToPx(130), dpToPx(36));
-                      params.setMargins(dpToPx(2), dpToPx(2), dpToPx(2), dpToPx(2));
-                      chip.setLayoutParams(params);
-
-                      chip.setOnClickListener(v -> {
+                      // Text Preview
+                      TextView tv = new TextView(this);
+                      tv.setText(item.replace("\n", " "));
+                      tv.setTextColor(Color.WHITE);
+                      tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                      tv.setMaxLines(2);
+                      tv.setEllipsize(TextUtils.TruncateAt.END);
+                      tv.setOnClickListener(v -> {
                           InputConnection ic = getCurrentInputConnection();
                           if (ic != null) ic.commitText(item, 1);
-                          clipboardBar.setVisibility(View.GONE);
+                          clipboardDrawer.setVisibility(View.GONE);
                       });
-                      clipboardItemsContainer.addView(chip);
+                      row.addView(tv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+
+                      // Individual Delete Button
+                      Button delBtn = new Button(this);
+                      delBtn.setText("🗑️");
+                      delBtn.setTextColor(Color.WHITE);
+                      GradientDrawable delBg = new GradientDrawable();
+                      delBg.setColor(Color.parseColor("#27272A"));
+                      delBg.setCornerRadius(dpToPx(6));
+                      delBtn.setBackground(delBg);
+                      LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dpToPx(34), dpToPx(32));
+                      dlp.leftMargin = dpToPx(6);
+                      delBtn.setOnClickListener(v -> {
+                          deleteFromClipboard(item);
+                          refreshClipboardUI();
+                      });
+                      row.addView(delBtn, dlp);
+
+                      clipboardItemsLayout.addView(row);
                   }
               }
 
@@ -880,8 +1057,16 @@ jobs:
                   List<String> list = getClipboardHistory();
                   list.remove(text);
                   list.add(0, text);
-                  if (list.size() > 25) list = list.subList(0, 25);
+                  if (list.size() > 30) list = list.subList(0, 30);
 
+                  JSONArray arr = new JSONArray();
+                  for (String s : list) arr.put(s);
+                  getSharedPreferences("gemini_clipboard", MODE_PRIVATE).edit().putString("clips", arr.toString()).apply();
+              }
+
+              private void deleteFromClipboard(String text) {
+                  List<String> list = getClipboardHistory();
+                  list.remove(text);
                   JSONArray arr = new JSONArray();
                   for (String s : list) arr.put(s);
                   getSharedPreferences("gemini_clipboard", MODE_PRIVATE).edit().putString("clips", arr.toString()).apply();
@@ -893,7 +1078,14 @@ jobs:
                   keysContainer.removeAllViews();
                   letterButtons.clear();
 
-                  String[][] currentLayout = isNumberMode ? qwertyNumbers : qwertyLetters;
+                  String[][] currentLayout;
+                  if (isNumberMode) {
+                      currentLayout = qwertyNumbers;
+                  } else if (isHindiMode) {
+                      currentLayout = isCaps ? hindiVowels : hindiConsonants;
+                  } else {
+                      currentLayout = qwertyLetters;
+                  }
 
                   for (String[] row : currentLayout) {
                       LinearLayout rowLayout = new LinearLayout(this);
@@ -908,7 +1100,7 @@ jobs:
                           }
 
                           Button btn = createKey(key, weight);
-                          if (key.length() == 1 && Character.isLetter(key.charAt(0))) {
+                          if (!isHindiMode && key.length() == 1 && Character.isLetter(key.charAt(0))) {
                               letterButtons.add(btn);
                               btn.setText(isCaps ? key.toUpperCase() : key.toLowerCase());
                           }
@@ -923,7 +1115,7 @@ jobs:
                   btn.setText(keyText);
                   btn.setAllCaps(false);
                   btn.setTextColor(Color.WHITE);
-                  btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+                  btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, isHindiMode ? 19 : 17);
 
                   GradientDrawable gd = new GradientDrawable();
                   if (keyText.equals("ENTER")) {
@@ -941,16 +1133,11 @@ jobs:
                   btn.setLayoutParams(params);
                   btn.setPadding(0, 0, 0, 0);
 
-                  // 1. Spacebar Trackpad Cursor Scrubbing
                   if (keyText.equals("SPACE")) {
                       setupSpacebarScrubbing(btn);
-                  }
-                  // 2. Swipe to Delete
-                  else if (keyText.equals("DEL")) {
+                  } else if (keyText.equals("DEL")) {
                       setupSwipeToDelete(btn);
-                  }
-                  // 3. Regular keys & Long-press for numbers/symbols
-                  else {
+                  } else {
                       btn.setOnClickListener(v -> handleKeyPress(keyText));
                       String symbol = getSymbolFor(keyText);
                       if (symbol != null) {
@@ -1051,6 +1238,7 @@ jobs:
               }
 
               private String getSymbolFor(String key) {
+                  if (isHindiMode) return null;
                   switch (key.toLowerCase()) {
                       case "q": return "1"; case "w": return "2"; case "e": return "3";
                       case "r": return "4"; case "t": return "5"; case "y": return "6";
@@ -1074,10 +1262,7 @@ jobs:
                           break;
                       case "SHIFT":
                           isCaps = !isCaps;
-                          for (Button b : letterButtons) {
-                              String s = b.getText().toString();
-                              b.setText(isCaps ? s.toUpperCase() : s.toLowerCase());
-                          }
+                          renderKeyboard();
                           break;
                       case "123":
                       case "ABC":
@@ -1085,35 +1270,14 @@ jobs:
                           renderKeyboard();
                           break;
                       default:
-                          ic.commitText(isCaps ? key.toUpperCase() : key.toLowerCase(), 1);
+                          String commit = (isCaps && !isHindiMode) ? key.toUpperCase() : key;
+                          ic.commitText(commit, 1);
                           break;
                   }
               }
 
-              // --- Hold-to-Talk Mic with Action Mode ---
-              private void setupHoldToTalk(Button mic) {
-                  mic.setOnTouchListener((v, event) -> {
-                      switch (event.getAction()) {
-                          case MotionEvent.ACTION_DOWN:
-                              recordStartTime = System.currentTimeMillis();
-                              startRecording();
-                              return true;
-                          case MotionEvent.ACTION_UP:
-                          case MotionEvent.ACTION_CANCEL:
-                              long duration = System.currentTimeMillis() - recordStartTime;
-                              if (duration < 350) {
-                                  statusText.setText("Hold while talking");
-                                  cancelRecording();
-                              } else {
-                                  stopRecordingAndSend();
-                              }
-                              return true;
-                      }
-                      return false;
-                  });
-              }
-
-              private void startRecording() {
+              // --- Voice Recording Pipeline ---
+              private void startVoiceRecording(boolean forAiPrompt) {
                   if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                       statusText.setText("⚠️ Mic permission missing! Tap ⚙️");
                       return;
@@ -1139,18 +1303,27 @@ jobs:
                       mediaRecorder.start();
 
                       isRecording = true;
-                      micButton.setText("🔴 Release");
-                      statusText.setText("Listening...");
+                      isRecordingForAiPrompt = forAiPrompt;
+
+                      if (forAiPrompt) {
+                          aiMicButton.setText("⏹️");
+                          statusText.setText("Listening for AI prompt...");
+                      } else {
+                          micButton.setText("⏹️ Stop");
+                          statusText.setText("Listening...");
+                      }
                   } catch (Exception e) {
                       statusText.setText("Mic Error: " + e.getMessage());
                       isRecording = false;
-                      micButton.setText("🎙️ Hold");
+                      micButton.setText("🎙️ Mic");
+                      aiMicButton.setText("🎙️");
                   }
               }
 
-              private void cancelRecording() {
+              private void cancelVoiceRecording() {
                   isRecording = false;
-                  micButton.setText("🎙️ Hold");
+                  applyMicModeBehavior(micButton);
+                  aiMicButton.setText("🎙️");
                   if (mediaRecorder != null) {
                       try { mediaRecorder.reset(); mediaRecorder.release(); } catch (Exception ignored) {}
                       mediaRecorder = null;
@@ -1159,26 +1332,32 @@ jobs:
                   if (audioFile.exists()) audioFile.delete();
               }
 
-              private void stopRecordingAndSend() {
+              private void stopVoiceRecording(boolean forAiPrompt) {
                   isRecording = false;
-                  micButton.setText("🎙️ Hold");
-                  statusText.setText("⏳ Processing...");
+                  applyMicModeBehavior(micButton);
+                  aiMicButton.setText("🎙️");
+                  statusText.setText("⚡ Streaming...");
 
                   if (mediaRecorder != null) {
                       try {
                           mediaRecorder.stop();
                       } catch (RuntimeException ignored) {
-                          cancelRecording();
+                          cancelVoiceRecording();
                           return;
                       }
                       try { mediaRecorder.release(); } catch (Exception ignored) {}
                       mediaRecorder = null;
                   }
 
-                  sendAudioToGemini();
+                  if (forAiPrompt) {
+                      transcribeForAiPrompt();
+                  } else {
+                      streamAudioToGemini();
+                  }
               }
 
-              private void sendAudioToGemini() {
+              // --- Real-Time Token Streaming using SSE ---
+              private void streamAudioToGemini() {
                   SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
                   String apiKey = prefs.getString("api_key", "").trim();
                   String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
@@ -1191,27 +1370,28 @@ jobs:
                   }
 
                   final String activeTrigger = triggerWord;
+                  final boolean inHindi = isHindiMode;
 
                   new Thread(() -> {
                       try {
                           File audioFile = new File(getCacheDir(), "voice_input.m4a");
                           if (!audioFile.exists() || audioFile.length() == 0) {
-                              mainHandler.post(() -> statusText.setText("⚠️ No audio detected"));
+                              mainHandler.post(() -> statusText.setText("⚠️ No audio recorded"));
                               return;
                           }
 
                           byte[] audioBytes = readFileToBytes(audioFile);
                           if (audioBytes == null || audioBytes.length == 0) {
-                              mainHandler.post(() -> statusText.setText("⚠️ File read error"));
+                              mainHandler.post(() -> statusText.setText("⚠️ Audio read error"));
                               return;
                           }
 
                           String base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP);
 
-                          // Intelligent Action vs Dictation Dual System Prompt
-                          String systemInstruction = "You are an intelligent input method voice engine. Analyze the spoken audio:\n"
-                              + "1. ACTION MODE: If the speaker starts by addressing or saying the trigger word '" + activeTrigger + "' (or common phonetic variations), they are giving you a command, calculation, question, translation, or text generation task. Execute the task or answer the question thoroughly and concisely. Output ONLY the direct answer/result/drafted text. DO NOT include greetings, commentary, quotes, or markdown.\n"
-                              + "2. DICTATION MODE: If the speaker does NOT begin with '" + activeTrigger + "', transcribe their speech verbatim in the spoken language with proper punctuation and formatting. Output ONLY the raw transcript.";
+                          String langInstruction = inHindi ? " Prioritize transcription in Hindi (Devanagari script) or natural Hinglish as spoken." : "";
+                          String systemInstruction = "You are an ultra-fast input method voice engine." + langInstruction + "\n"
+                              + "1. ACTION MODE: If speaker begins with trigger word '" + activeTrigger + "', execute the command/question/calculation and output ONLY the direct answer/result. No greetings, filler, quotes, or markdown.\n"
+                              + "2. DICTATION MODE: Otherwise, transcribe speech verbatim with proper punctuation. Output ONLY the raw transcript.";
 
                           JSONObject requestJson = new JSONObject();
                           JSONArray contents = new JSONArray();
@@ -1238,62 +1418,206 @@ jobs:
                           genConfig.put("temperature", 0.1);
                           requestJson.put("generationConfig", genConfig);
 
-                          URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey);
-                          HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                          conn.setRequestMethod("POST");
-                          conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                          conn.setDoOutput(true);
-                          conn.setConnectTimeout(15000);
-                          conn.setReadTimeout(20000);
+                          // Real-Time SSE Endpoint
+                          String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":streamGenerateContent?alt=sse&key=" + apiKey;
 
-                          try (OutputStream os = conn.getOutputStream()) {
-                              byte[] input = requestJson.toString().getBytes(StandardCharsets.UTF_8);
-                              os.write(input, 0, input.length);
-                          }
+                          RequestBody body = RequestBody.create(
+                              requestJson.toString(),
+                              MediaType.parse("application/json; charset=utf-8")
+                          );
 
-                          int responseCode = conn.getResponseCode();
-                          InputStream is = (responseCode >= 200 && responseCode < 300) ? conn.getInputStream() : conn.getErrorStream();
-                          StringBuilder responseBuilder = new StringBuilder();
-                          try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                          Request request = new Request.Builder()
+                              .url(url)
+                              .post(body)
+                              .build();
+
+                          try (Response response = getClient().newCall(request).execute()) {
+                              if (!response.isSuccessful()) {
+                                  String err = "HTTP " + response.code();
+                                  mainHandler.post(() -> statusText.setText("❌ " + err));
+                                  return;
+                              }
+
+                              BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream(), StandardCharsets.UTF_8));
                               String line;
-                              while ((line = br.readLine()) != null) responseBuilder.append(line);
-                          }
+                              boolean firstToken = true;
 
-                          String respStr = responseBuilder.toString();
-                          if (responseCode != 200) {
-                              String errMessage = "HTTP " + responseCode;
-                              try {
-                                  JSONObject errJson = new JSONObject(respStr);
-                                  if (errJson.has("error")) {
-                                      errMessage = errJson.getJSONObject("error").optString("message", errMessage);
-                                  }
-                              } catch (Exception ignored) {}
-                              final String errFinal = errMessage;
-                              mainHandler.post(() -> statusText.setText("❌ " + errFinal));
-                              return;
-                          }
-
-                          JSONObject respJson = new JSONObject(respStr);
-                          JSONArray candidates = respJson.optJSONArray("candidates");
-                          if (candidates != null && candidates.length() > 0) {
-                              JSONObject cand = candidates.getJSONObject(0);
-                              JSONObject candContent = cand.optJSONObject("content");
-                              if (candContent != null) {
-                                  JSONArray candParts = candContent.optJSONArray("parts");
-                                  if (candParts != null && candParts.length() > 0) {
-                                      String text = candParts.getJSONObject(0).optString("text", "").trim();
-                                      mainHandler.post(() -> {
-                                          InputConnection ic = getCurrentInputConnection();
-                                          if (ic != null && !text.isEmpty()) {
-                                              ic.commitText(text + " ", 1);
+                              while ((line = reader.readLine()) != null) {
+                                  if (line.startsWith("data: ")) {
+                                      String jsonStr = line.substring(6).trim();
+                                      if (jsonStr.equals("[DONE]")) break;
+                                      try {
+                                          JSONObject chunk = new JSONObject(jsonStr);
+                                          JSONArray candidates = chunk.optJSONArray("candidates");
+                                          if (candidates != null && candidates.length() > 0) {
+                                              JSONObject candContent = candidates.getJSONObject(0).optJSONObject("content");
+                                              if (candContent != null) {
+                                                  JSONArray candParts = candContent.optJSONArray("parts");
+                                                  if (candParts != null && candParts.length() > 0) {
+                                                      String token = candParts.getJSONObject(0).optString("text", "");
+                                                      if (!token.isEmpty()) {
+                                                          final boolean isFirst = firstToken;
+                                                          firstToken = false;
+                                                          mainHandler.post(() -> {
+                                                              InputConnection ic = getCurrentInputConnection();
+                                                              if (ic != null) ic.commitText(token, 1);
+                                                              if (isFirst) statusText.setText("⚡ Streaming...");
+                                                          });
+                                                      }
+                                                  }
+                                              }
                                           }
-                                          statusText.setText("✅ Done");
-                                      });
-                                      return;
+                                      } catch (Exception ignored) {}
+                                  }
+                              }
+                              mainHandler.post(() -> {
+                                  InputConnection ic = getCurrentInputConnection();
+                                  if (ic != null) ic.commitText(" ", 1);
+                                  statusText.setText("✅ Ready");
+                              });
+                          }
+                      } catch (Exception e) {
+                          mainHandler.post(() -> statusText.setText("❌ " + e.getMessage()));
+                      }
+                  }).start();
+              }
+
+              // --- Transcribe for AI Prompt Box ---
+              private void transcribeForAiPrompt() {
+                  SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
+                  String apiKey = prefs.getString("api_key", "").trim();
+                  String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
+
+                  new Thread(() -> {
+                      try {
+                          File audioFile = new File(getCacheDir(), "voice_input.m4a");
+                          byte[] audioBytes = readFileToBytes(audioFile);
+                          if (audioBytes == null || audioBytes.length == 0) return;
+
+                          String base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP);
+
+                          JSONObject requestJson = new JSONObject();
+                          JSONArray contents = new JSONArray();
+                          JSONObject content = new JSONObject();
+                          JSONArray parts = new JSONArray();
+
+                          JSONObject textPart = new JSONObject();
+                          textPart.put("text", "Transcribe verbatim the spoken instruction. Return ONLY the transcribed instruction text.");
+                          parts.put(textPart);
+
+                          JSONObject inlineData = new JSONObject();
+                          inlineData.put("mimeType", "audio/mp4");
+                          inlineData.put("data", base64Audio);
+                          JSONObject audioPart = new JSONObject();
+                          audioPart.put("inlineData", inlineData);
+                          parts.put(audioPart);
+
+                          content.put("parts", parts);
+                          contents.put(content);
+                          requestJson.put("contents", contents);
+
+                          String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey;
+                          RequestBody body = RequestBody.create(requestJson.toString(), MediaType.parse("application/json; charset=utf-8"));
+                          Request request = new Request.Builder().url(url).post(body).build();
+
+                          try (Response response = getClient().newCall(request).execute()) {
+                              String respStr = response.body() != null ? response.body().string() : "";
+                              JSONObject respJson = new JSONObject(respStr);
+                              JSONArray candidates = respJson.optJSONArray("candidates");
+                              if (candidates != null && candidates.length() > 0) {
+                                  JSONObject candContent = candidates.getJSONObject(0).optJSONObject("content");
+                                  if (candContent != null) {
+                                      JSONArray candParts = candContent.optJSONArray("parts");
+                                      if (candParts != null && candParts.length() > 0) {
+                                          String transcribedPrompt = candParts.getJSONObject(0).optString("text", "").trim();
+                                          mainHandler.post(() -> {
+                                              manualAiPromptInput.setText(transcribedPrompt);
+                                              rewriteWithGemini(transcribedPrompt);
+                                          });
+                                      }
                                   }
                               }
                           }
-                          mainHandler.post(() -> statusText.setText("No speech recognized"));
+                      } catch (Exception ignored) {}
+                  }).start();
+              }
+
+              // --- AI Rewrite Engine ---
+              private void rewriteWithGemini(String instruction) {
+                  InputConnection ic = getCurrentInputConnection();
+                  CharSequence before = ic != null ? ic.getTextBeforeCursor(3000, 0) : null;
+                  CharSequence after = ic != null ? ic.getTextAfterCursor(3000, 0) : null;
+                  String fullText = (before != null ? before.toString() : "") + (after != null ? after.toString() : "");
+
+                  // Fallback to clipboard if active input is empty
+                  if (fullText.trim().isEmpty()) {
+                      List<String> clips = getClipboardHistory();
+                      if (!clips.isEmpty()) fullText = clips.get(0);
+                  }
+
+                  if (fullText.trim().isEmpty()) {
+                      statusText.setText("⚠️ No text found in app or clipboard");
+                      return;
+                  }
+
+                  final String sourceText = fullText;
+                  final int beforeLen = before != null ? before.length() : 0;
+                  final int afterLen = after != null ? after.length() : 0;
+
+                  statusText.setText("✨ AI Rewriting...");
+
+                  SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
+                  String apiKey = prefs.getString("api_key", "").trim();
+                  String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
+
+                  new Thread(() -> {
+                      try {
+                          JSONObject requestJson = new JSONObject();
+                          JSONArray contents = new JSONArray();
+                          JSONObject content = new JSONObject();
+                          JSONArray parts = new JSONArray();
+
+                          JSONObject textPart = new JSONObject();
+                          String prompt = "Instruction: " + instruction + "\nOutput ONLY the rewritten text without commentary, quotes, or markdown.\n\nOriginal Text:\n" + sourceText;
+                          textPart.put("text", prompt);
+                          parts.put(textPart);
+
+                          content.put("parts", parts);
+                          contents.put(content);
+                          requestJson.put("contents", contents);
+
+                          JSONObject genConfig = new JSONObject();
+                          genConfig.put("temperature", 0.3);
+                          requestJson.put("generationConfig", genConfig);
+
+                          String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey;
+                          RequestBody body = RequestBody.create(requestJson.toString(), MediaType.parse("application/json; charset=utf-8"));
+                          Request request = new Request.Builder().url(url).post(body).build();
+
+                          try (Response response = getClient().newCall(request).execute()) {
+                              String respStr = response.body() != null ? response.body().string() : "";
+                              JSONObject respJson = new JSONObject(respStr);
+                              JSONArray candidates = respJson.optJSONArray("candidates");
+                              if (candidates != null && candidates.length() > 0) {
+                                  JSONObject candContent = candidates.getJSONObject(0).optJSONObject("content");
+                                  if (candContent != null) {
+                                      JSONArray candParts = candContent.optJSONArray("parts");
+                                      if (candParts != null && candParts.length() > 0) {
+                                          String rewritten = candParts.getJSONObject(0).optString("text", "").trim();
+                                          mainHandler.post(() -> {
+                                              InputConnection liveIc = getCurrentInputConnection();
+                                              if (liveIc != null && !rewritten.isEmpty()) {
+                                                  liveIc.deleteSurroundingText(beforeLen, afterLen);
+                                                  liveIc.commitText(rewritten, 1);
+                                              }
+                                              statusText.setText("✅ AI Done");
+                                              aiPanel.setVisibility(View.GONE);
+                                          });
+                                          return;
+                                      }
+                                  }
+                              }
+                          }
                       } catch (Exception e) {
                           mainHandler.post(() -> statusText.setText("❌ " + e.getMessage()));
                       }
