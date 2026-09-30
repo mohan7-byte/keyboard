@@ -38,8 +38,21 @@ jobs:
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/xml
           mkdir -p app/src/main/res/drawable
+
+          # Copy icon if uploaded to root
           if [ -f "icon.png" ]; then
             cp icon.png app/src/main/res/drawable/app_icon.png
+          else
+            # Fallback default XML icon if icon.png is not present
+            cat << 'EOF' > app/src/main/res/drawable/app_icon.xml
+            <vector xmlns:android="http://schemas.android.com/apk/res/android"
+                android:width="48dp"
+                android:height="48dp"
+                android:viewportWidth="24"
+                android:viewportHeight="24">
+                <path android:fillColor="#0284C7" android:pathData="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z"/>
+            </vector>
+          EOF
           fi
 
           # 1. settings.gradle
@@ -89,8 +102,8 @@ jobs:
                   applicationId "com.gemini.keyboard"
                   minSdk 26
                   targetSdk 34
-                  versionCode 4
-                  versionName "4.0"
+                  versionCode 5
+                  versionName "5.0"
               }
 
               buildTypes {
@@ -184,7 +197,7 @@ jobs:
           </input-method>
           EOF
 
-          # 7. SettingsActivity.java (Masked Key + Tap/Hold Setting + Clean Dark UI)
+          # 7. SettingsActivity.java
           cat << 'EOF' > app/src/main/java/com/gemini/keyboard/SettingsActivity.java
           package com.gemini.keyboard;
 
@@ -247,7 +260,7 @@ jobs:
                   root.setOrientation(LinearLayout.VERTICAL);
                   root.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(24));
 
-                  // --- Header ---
+                  // Header
                   LinearLayout headerCard = createCard();
                   TextView title = new TextView(this);
                   title.setText("✨ Gemini Voice Keyboard");
@@ -257,18 +270,18 @@ jobs:
                   headerCard.addView(title);
 
                   TextView subtitle = new TextView(this);
-                  subtitle.setText("Real-time streaming, Hindi Devanagari, voice actions, and clipboard vault.");
+                  subtitle.setText("Dual-engine streaming, Hindi Devanagari, voice actions, and persistent clipboard.");
                   subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
                   subtitle.setTextColor(Color.parseColor("#A1A1AA"));
                   subtitle.setPadding(0, dpToPx(6), 0, 0);
                   headerCard.addView(subtitle);
                   root.addView(headerCard);
 
-                  // --- AI Engine Card ---
+                  // AI Engine Settings Card
                   LinearLayout aiCard = createCard();
                   aiCard.addView(createSectionTitle("AI & Voice Engine"));
 
-                  // 1. API Key with Eye Toggle
+                  // 1. Masked API Key with Eye Toggle
                   aiCard.addView(createFieldLabel("Google AI Studio API Key (Protected)"));
                   LinearLayout keyRow = new LinearLayout(this);
                   keyRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -305,23 +318,29 @@ jobs:
 
                   // 2. Model Name
                   aiCard.addView(createFieldLabel("Gemini Model"));
-                  modelEdit = createStyledInput("e.g. gemini-2.0-flash");
-                  modelEdit.setText(prefs.getString("model_name", "gemini-2.0-flash"));
+                  TextView modelHint = new TextView(this);
+                  modelHint.setText("Standard audio models: gemini-3.1-flash-lite or gemini-2.5-flash");
+                  modelHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+                  modelHint.setTextColor(Color.parseColor("#71717A"));
+                  aiCard.addView(modelHint);
+
+                  modelEdit = createStyledInput("e.g. gemini-3.1-flash-lite");
+                  modelEdit.setText(prefs.getString("model_name", "gemini-3.1-flash-lite"));
                   aiCard.addView(modelEdit);
 
-                  // 3. Trigger Word
+                  // 3. Action Trigger Word
                   aiCard.addView(createFieldLabel("Action Trigger Word"));
                   triggerWordEdit = createStyledInput("e.g. Gemini or Jarvis");
                   triggerWordEdit.setText(prefs.getString("trigger_word", "Gemini"));
                   aiCard.addView(triggerWordEdit);
 
-                  // 4. Mic Behavior (Tap vs Hold)
-                  aiCard.addView(createFieldLabel("Microphone Button Mode"));
+                  // 4. Mic Mode
+                  aiCard.addView(createFieldLabel("Microphone Mode"));
                   micModeGroup = new RadioGroup(this);
                   micModeGroup.setOrientation(LinearLayout.VERTICAL);
 
                   rbTap = new RadioButton(this);
-                  rbTap.setText("Tap to Talk (Click once to speak, click to finish)");
+                  rbTap.setText("Tap to Talk (Click once to record, click to finish)");
                   rbTap.setTextColor(Color.WHITE);
                   rbTap.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
                   micModeGroup.addView(rbTap);
@@ -363,7 +382,7 @@ jobs:
                   aiCard.addView(saveBtn);
                   root.addView(aiCard);
 
-                  // --- Setup Steps Card ---
+                  // Setup Steps Card
                   LinearLayout stepsCard = createCard();
                   stepsCard.addView(createSectionTitle("System Setup"));
 
@@ -458,7 +477,7 @@ jobs:
           }
           EOF
 
-          # 8. GeminiInputMethodService.java (Real-Time SSE Streaming + Hindi Layout + Clipboard Manager + Voice AI)
+          # 8. GeminiInputMethodService.java (Dual-Engine: Streaming + Auto-Fallback + Strict Role Fix)
           cat << 'EOF' > app/src/main/java/com/gemini/keyboard/GeminiInputMethodService.java
           package com.gemini.keyboard;
 
@@ -535,7 +554,6 @@ jobs:
               private MediaRecorder mediaRecorder;
               private final List<Button> letterButtons = new ArrayList<>();
 
-              // Persistent HTTP/2 Client with Connection Pooling
               private static OkHttpClient httpClient;
               public static synchronized OkHttpClient getClient() {
                   if (httpClient == null) {
@@ -557,7 +575,7 @@ jobs:
                   {"123", ",", "SPACE", ".", "ENTER"}
               };
 
-              // Hindi Devanagari (Consonants & Matras)
+              // Hindi Devanagari Consonants
               private final String[][] hindiConsonants = {
                   {"क", "ख", "ग", "घ", "ङ", "च", "छ", "ज", "झ", "ञ"},
                   {"ट", "ठ", "ड", "ढ", "ण", "त", "थ", "द", "ध", "न"},
@@ -565,7 +583,7 @@ jobs:
                   {"123", "ा", "ि", "ी", "SPACE", "ु", "ू", "्", "ENTER"}
               };
 
-              // Hindi Devanagari Vowels & Secondary
+              // Hindi Devanagari Vowels & Matras
               private final String[][] hindiVowels = {
                   {"अ", "आ", "इ", "ई", "उ", "ऊ", "ऋ", "ए", "ऐ", "ओ", "औ"},
                   {"श", "ष", "स", "ह", "क्ष", "त्र", "ज्ञ", "श्र", "ड़", "ढ़"},
@@ -632,7 +650,7 @@ jobs:
                   barBtnBg.setColor(Color.parseColor("#27272A"));
                   barBtnBg.setCornerRadius(dpToPx(6));
 
-                  // Language Toggle: EN vs हि
+                  // Language Toggle (EN vs हि)
                   langToggleBtn = new Button(this);
                   langToggleBtn.setText(isHindiMode ? "हि" : "EN");
                   langToggleBtn.setTextColor(Color.WHITE);
@@ -703,11 +721,11 @@ jobs:
 
                   rootLayout.addView(toolbar);
 
-                  // Clipboard Drawer (Redesigned with Individual Delete & Clear All)
+                  // Clipboard Drawer
                   clipboardDrawer = buildClipboardDrawer();
                   rootLayout.addView(clipboardDrawer);
 
-                  // AI Rewriting Panel (Overhauled with Voice Mic & Active Text Grab)
+                  // AI Rewriting Panel
                   aiPanel = buildAiPanel();
                   rootLayout.addView(aiPanel);
 
@@ -720,7 +738,6 @@ jobs:
                   return rootLayout;
               }
 
-              // --- Language Switching ---
               private void toggleLanguage() {
                   isHindiMode = !isHindiMode;
                   isCaps = false;
@@ -730,7 +747,6 @@ jobs:
                   renderKeyboard();
               }
 
-              // --- Microphone Mode (Tap vs Hold) ---
               private void applyMicModeBehavior(Button btn) {
                   SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
                   String mode = prefs.getString("mic_mode", "tap");
@@ -770,14 +786,12 @@ jobs:
                   }
               }
 
-              // --- Overhauled AI Panel with Voice Prompt & Text Grabber ---
               private LinearLayout buildAiPanel() {
                   LinearLayout panel = new LinearLayout(this);
                   panel.setOrientation(LinearLayout.VERTICAL);
                   panel.setVisibility(View.GONE);
                   panel.setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4));
 
-                  // Presets
                   HorizontalScrollView chipScroll = new HorizontalScrollView(this);
                   LinearLayout chipRow = new LinearLayout(this);
                   chipRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -802,13 +816,11 @@ jobs:
                   chipScroll.addView(chipRow);
                   panel.addView(chipScroll);
 
-                  // Action Row: Grab active text & voice prompt
                   LinearLayout manualRow = new LinearLayout(this);
                   manualRow.setOrientation(LinearLayout.HORIZONTAL);
                   manualRow.setGravity(Gravity.CENTER_VERTICAL);
                   manualRow.setPadding(0, dpToPx(4), 0, 0);
 
-                  // Button to grab text from input box or clipboard
                   Button grabTextBtn = new Button(this);
                   grabTextBtn.setText("📋 Use App Text");
                   grabTextBtn.setTextColor(Color.parseColor("#38BDF8"));
@@ -828,7 +840,7 @@ jobs:
                           if (!clips.isEmpty()) text = clips.get(0);
                       }
                       if (text != null && text.length() > 0) {
-                          statusText.setText("Loaded text (" + text.length() + " chars)");
+                          statusText.setText("Loaded (" + text.length() + " chars)");
                       } else {
                           statusText.setText("No text found");
                       }
@@ -850,7 +862,6 @@ jobs:
                   etLp.leftMargin = dpToPx(4);
                   manualRow.addView(manualAiPromptInput, etLp);
 
-                  // AI Voice Prompt Button
                   aiMicButton = new Button(this);
                   aiMicButton.setText("🎙️");
                   aiMicButton.setTextColor(Color.WHITE);
@@ -869,7 +880,6 @@ jobs:
                   });
                   manualRow.addView(aiMicButton, amp);
 
-                  // Apply Custom Prompt Button
                   Button runManualBtn = new Button(this);
                   runManualBtn.setText("Apply");
                   runManualBtn.setTextColor(Color.WHITE);
@@ -886,7 +896,6 @@ jobs:
                   });
                   manualRow.addView(runManualBtn, rlp);
 
-                  // Close Button
                   Button closeAiBtn = new Button(this);
                   closeAiBtn.setText("✖");
                   closeAiBtn.setTextColor(Color.WHITE);
@@ -912,14 +921,12 @@ jobs:
                   }
               }
 
-              // --- Redesigned Clipboard Drawer with Delete & Clear All ---
               private LinearLayout buildClipboardDrawer() {
                   LinearLayout drawer = new LinearLayout(this);
                   drawer.setOrientation(LinearLayout.VERTICAL);
                   drawer.setVisibility(View.GONE);
                   drawer.setPadding(dpToPx(6), dpToPx(4), dpToPx(6), dpToPx(4));
 
-                  // Top action bar
                   LinearLayout header = new LinearLayout(this);
                   header.setOrientation(LinearLayout.HORIZONTAL);
                   header.setGravity(Gravity.CENTER_VERTICAL);
@@ -957,7 +964,6 @@ jobs:
 
                   drawer.addView(header);
 
-                  // Vertical Scrollable items list
                   ScrollView sv = new ScrollView(this);
                   LinearLayout.LayoutParams svLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(130));
                   svLp.topMargin = dpToPx(4);
@@ -1006,7 +1012,6 @@ jobs:
                       row.setLayoutParams(rLp);
                       row.setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6));
 
-                      // Text Preview
                       TextView tv = new TextView(this);
                       tv.setText(item.replace("\n", " "));
                       tv.setTextColor(Color.WHITE);
@@ -1020,7 +1025,6 @@ jobs:
                       });
                       row.addView(tv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
 
-                      // Individual Delete Button
                       Button delBtn = new Button(this);
                       delBtn.setText("🗑️");
                       delBtn.setTextColor(Color.WHITE);
@@ -1072,7 +1076,6 @@ jobs:
                   getSharedPreferences("gemini_clipboard", MODE_PRIVATE).edit().putString("clips", arr.toString()).apply();
               }
 
-              // --- Keyboard Layout & Gestures ---
               private void renderKeyboard() {
                   if (keysContainer == null) return;
                   keysContainer.removeAllViews();
@@ -1276,7 +1279,6 @@ jobs:
                   }
               }
 
-              // --- Voice Recording Pipeline ---
               private void startVoiceRecording(boolean forAiPrompt) {
                   if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                       statusText.setText("⚠️ Mic permission missing! Tap ⚙️");
@@ -1307,7 +1309,7 @@ jobs:
 
                       if (forAiPrompt) {
                           aiMicButton.setText("⏹️");
-                          statusText.setText("Listening for AI prompt...");
+                          statusText.setText("Listening for prompt...");
                       } else {
                           micButton.setText("⏹️ Stop");
                           statusText.setText("Listening...");
@@ -1315,7 +1317,7 @@ jobs:
                   } catch (Exception e) {
                       statusText.setText("Mic Error: " + e.getMessage());
                       isRecording = false;
-                      micButton.setText("🎙️ Mic");
+                      applyMicModeBehavior(micButton);
                       aiMicButton.setText("🎙️");
                   }
               }
@@ -1336,7 +1338,7 @@ jobs:
                   isRecording = false;
                   applyMicModeBehavior(micButton);
                   aiMicButton.setText("🎙️");
-                  statusText.setText("⚡ Streaming...");
+                  statusText.setText("⚡ Processing...");
 
                   if (mediaRecorder != null) {
                       try {
@@ -1356,11 +1358,21 @@ jobs:
                   }
               }
 
-              // --- Real-Time Token Streaming using SSE ---
+              private String sanitizeModelName(String model) {
+                  if (model == null) return "gemini-3.1-flash-lite";
+                  String m = model.trim().toLowerCase();
+                  if (m.startsWith("models/")) m = m.substring(7);
+                  if (m.contains("live") || m.contains("realtime") || m.isEmpty()) {
+                      return "gemini-3.1-flash-lite";
+                  }
+                  return m;
+              }
+
+              // --- Stream Audio with Automatic Unary Fallback ---
               private void streamAudioToGemini() {
                   SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
                   String apiKey = prefs.getString("api_key", "").trim();
-                  String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
+                  String rawModel = prefs.getString("model_name", "gemini-3.1-flash-lite").trim();
                   String triggerWord = prefs.getString("trigger_word", "Gemini").trim();
                   if (triggerWord.isEmpty()) triggerWord = "Gemini";
 
@@ -1369,14 +1381,15 @@ jobs:
                       return;
                   }
 
+                  final String modelName = sanitizeModelName(rawModel);
                   final String activeTrigger = triggerWord;
                   final boolean inHindi = isHindiMode;
 
                   new Thread(() -> {
                       try {
                           File audioFile = new File(getCacheDir(), "voice_input.m4a");
-                          if (!audioFile.exists() || audioFile.length() == 0) {
-                              mainHandler.post(() -> statusText.setText("⚠️ No audio recorded"));
+                          if (!audioFile.exists() || audioFile.length() < 1200) {
+                              mainHandler.post(() -> statusText.setText("⚠️ Speak longer"));
                               return;
                           }
 
@@ -1388,105 +1401,171 @@ jobs:
 
                           String base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP);
 
-                          String langInstruction = inHindi ? " Prioritize transcription in Hindi (Devanagari script) or natural Hinglish as spoken." : "";
-                          String systemInstruction = "You are an ultra-fast input method voice engine." + langInstruction + "\n"
+                          String langInstruction = inHindi ? " Output in Hindi (Devanagari script) or natural Hinglish as spoken." : "";
+                          String systemInstruction = "You are an ultra-fast keyboard voice engine." + langInstruction + "\n"
                               + "1. ACTION MODE: If speaker begins with trigger word '" + activeTrigger + "', execute the command/question/calculation and output ONLY the direct answer/result. No greetings, filler, quotes, or markdown.\n"
                               + "2. DICTATION MODE: Otherwise, transcribe speech verbatim with proper punctuation. Output ONLY the raw transcript.";
 
                           JSONObject requestJson = new JSONObject();
                           JSONArray contents = new JSONArray();
-                          JSONObject content = new JSONObject();
+
+                          // Crucial: Must specify role: "user"
+                          JSONObject userTurn = new JSONObject();
+                          userTurn.put("role", "user");
+
                           JSONArray parts = new JSONArray();
 
                           JSONObject textPart = new JSONObject();
                           textPart.put("text", systemInstruction);
                           parts.put(textPart);
 
+                          JSONObject audioPart = new JSONObject();
                           JSONObject inlineData = new JSONObject();
                           inlineData.put("mimeType", "audio/mp4");
                           inlineData.put("data", base64Audio);
-
-                          JSONObject audioPart = new JSONObject();
                           audioPart.put("inlineData", inlineData);
                           parts.put(audioPart);
 
-                          content.put("parts", parts);
-                          contents.put(content);
+                          userTurn.put("parts", parts);
+                          contents.put(userTurn);
                           requestJson.put("contents", contents);
 
                           JSONObject genConfig = new JSONObject();
                           genConfig.put("temperature", 0.1);
                           requestJson.put("generationConfig", genConfig);
 
-                          // Real-Time SSE Endpoint
-                          String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":streamGenerateContent?alt=sse&key=" + apiKey;
+                          // Attempt 1: Real-Time SSE Streaming
+                          boolean streamed = executeStreamingRequest(modelName, apiKey, requestJson);
 
-                          RequestBody body = RequestBody.create(
-                              requestJson.toString(),
-                              MediaType.parse("application/json; charset=utf-8")
-                          );
-
-                          Request request = new Request.Builder()
-                              .url(url)
-                              .post(body)
-                              .build();
-
-                          try (Response response = getClient().newCall(request).execute()) {
-                              if (!response.isSuccessful()) {
-                                  String err = "HTTP " + response.code();
-                                  mainHandler.post(() -> statusText.setText("❌ " + err));
-                                  return;
-                              }
-
-                              BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream(), StandardCharsets.UTF_8));
-                              String line;
-                              boolean firstToken = true;
-
-                              while ((line = reader.readLine()) != null) {
-                                  if (line.startsWith("data: ")) {
-                                      String jsonStr = line.substring(6).trim();
-                                      if (jsonStr.equals("[DONE]")) break;
-                                      try {
-                                          JSONObject chunk = new JSONObject(jsonStr);
-                                          JSONArray candidates = chunk.optJSONArray("candidates");
-                                          if (candidates != null && candidates.length() > 0) {
-                                              JSONObject candContent = candidates.getJSONObject(0).optJSONObject("content");
-                                              if (candContent != null) {
-                                                  JSONArray candParts = candContent.optJSONArray("parts");
-                                                  if (candParts != null && candParts.length() > 0) {
-                                                      String token = candParts.getJSONObject(0).optString("text", "");
-                                                      if (!token.isEmpty()) {
-                                                          final boolean isFirst = firstToken;
-                                                          firstToken = false;
-                                                          mainHandler.post(() -> {
-                                                              InputConnection ic = getCurrentInputConnection();
-                                                              if (ic != null) ic.commitText(token, 1);
-                                                              if (isFirst) statusText.setText("⚡ Streaming...");
-                                                          });
-                                                      }
-                                                  }
-                                              }
-                                          }
-                                      } catch (Exception ignored) {}
-                                  }
-                              }
-                              mainHandler.post(() -> {
-                                  InputConnection ic = getCurrentInputConnection();
-                                  if (ic != null) ic.commitText(" ", 1);
-                                  statusText.setText("✅ Ready");
-                              });
+                          // Attempt 2: Auto-fallback to Unary generateContent if SSE gives 400
+                          if (!streamed) {
+                              executeUnaryFallback(modelName, apiKey, requestJson);
                           }
+
                       } catch (Exception e) {
                           mainHandler.post(() -> statusText.setText("❌ " + e.getMessage()));
                       }
                   }).start();
               }
 
-              // --- Transcribe for AI Prompt Box ---
+              private boolean executeStreamingRequest(String modelName, String apiKey, JSONObject payload) {
+                  String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":streamGenerateContent?alt=sse";
+                  RequestBody body = RequestBody.create(payload.toString(), MediaType.parse("application/json; charset=utf-8"));
+
+                  Request request = new Request.Builder()
+                      .url(url)
+                      .addHeader("x-goog-api-key", apiKey)
+                      .addHeader("Accept", "text/event-stream")
+                      .post(body)
+                      .build();
+
+                  try (Response response = getClient().newCall(request).execute()) {
+                      if (!response.isSuccessful() || response.body() == null) {
+                          return false;
+                      }
+
+                      BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream(), StandardCharsets.UTF_8));
+                      String line;
+                      boolean hasTokens = false;
+
+                      while ((line = reader.readLine()) != null) {
+                          if (line.startsWith("data: ")) {
+                              String jsonStr = line.substring(6).trim();
+                              if (jsonStr.equals("[DONE]")) break;
+                              try {
+                                  JSONObject chunk = new JSONObject(jsonStr);
+                                  JSONArray candidates = chunk.optJSONArray("candidates");
+                                  if (candidates != null && candidates.length() > 0) {
+                                      JSONObject candContent = candidates.getJSONObject(0).optJSONObject("content");
+                                      if (candContent != null) {
+                                          JSONArray candParts = candContent.optJSONArray("parts");
+                                          if (candParts != null && candParts.length() > 0) {
+                                              String token = candParts.getJSONObject(0).optString("text", "");
+                                              if (!token.isEmpty()) {
+                                                  hasTokens = true;
+                                                  mainHandler.post(() -> {
+                                                      InputConnection ic = getCurrentInputConnection();
+                                                      if (ic != null) ic.commitText(token, 1);
+                                                      statusText.setText("⚡ Streaming...");
+                                                  });
+                                              }
+                                          }
+                                      }
+                                  }
+                              } catch (Exception ignored) {}
+                          }
+                      }
+
+                      if (hasTokens) {
+                          mainHandler.post(() -> {
+                              InputConnection ic = getCurrentInputConnection();
+                              if (ic != null) ic.commitText(" ", 1);
+                              statusText.setText("✅ Ready");
+                          });
+                          return true;
+                      }
+                      return false;
+                  } catch (Exception e) {
+                      return false;
+                  }
+              }
+
+              private void executeUnaryFallback(String modelName, String apiKey, JSONObject payload) {
+                  String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent";
+                  RequestBody body = RequestBody.create(payload.toString(), MediaType.parse("application/json; charset=utf-8"));
+
+                  Request request = new Request.Builder()
+                      .url(url)
+                      .addHeader("x-goog-api-key", apiKey)
+                      .post(body)
+                      .build();
+
+                  try (Response response = getClient().newCall(request).execute()) {
+                      String respStr = response.body() != null ? response.body().string() : "";
+                      if (!response.isSuccessful()) {
+                          String errMessage = "HTTP " + response.code();
+                          try {
+                              JSONObject errJson = new JSONObject(respStr);
+                              if (errJson.has("error")) {
+                                  errMessage = errJson.getJSONObject("error").optString("message", errMessage);
+                              }
+                          } catch (Exception ignored) {}
+                          final String finalErr = errMessage;
+                          mainHandler.post(() -> statusText.setText("❌ " + finalErr));
+                          return;
+                      }
+
+                      JSONObject respJson = new JSONObject(respStr);
+                      JSONArray candidates = respJson.optJSONArray("candidates");
+                      if (candidates != null && candidates.length() > 0) {
+                          JSONObject cand = candidates.getJSONObject(0);
+                          JSONObject candContent = cand.optJSONObject("content");
+                          if (candContent != null) {
+                              JSONArray candParts = candContent.optJSONArray("parts");
+                              if (candParts != null && candParts.length() > 0) {
+                                  String text = candParts.getJSONObject(0).optString("text", "").trim();
+                                  mainHandler.post(() -> {
+                                      InputConnection ic = getCurrentInputConnection();
+                                      if (ic != null && !text.isEmpty()) {
+                                          ic.commitText(text + " ", 1);
+                                      }
+                                      statusText.setText("✅ Ready");
+                                  });
+                                  return;
+                              }
+                          }
+                      }
+                      mainHandler.post(() -> statusText.setText("No speech recognized"));
+                  } catch (Exception e) {
+                      mainHandler.post(() -> statusText.setText("❌ " + e.getMessage()));
+                  }
+              }
+
+              // --- AI Prompt Transcription ---
               private void transcribeForAiPrompt() {
                   SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
                   String apiKey = prefs.getString("api_key", "").trim();
-                  String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
+                  String modelName = sanitizeModelName(prefs.getString("model_name", "gemini-3.1-flash-lite").trim());
 
                   new Thread(() -> {
                       try {
@@ -1498,27 +1577,32 @@ jobs:
 
                           JSONObject requestJson = new JSONObject();
                           JSONArray contents = new JSONArray();
-                          JSONObject content = new JSONObject();
-                          JSONArray parts = new JSONArray();
+                          JSONObject userTurn = new JSONObject();
+                          userTurn.put("role", "user");
 
+                          JSONArray parts = new JSONArray();
                           JSONObject textPart = new JSONObject();
-                          textPart.put("text", "Transcribe verbatim the spoken instruction. Return ONLY the transcribed instruction text.");
+                          textPart.put("text", "Transcribe verbatim the spoken instruction. Output ONLY the raw transcribed instruction text.");
                           parts.put(textPart);
 
+                          JSONObject audioPart = new JSONObject();
                           JSONObject inlineData = new JSONObject();
                           inlineData.put("mimeType", "audio/mp4");
                           inlineData.put("data", base64Audio);
-                          JSONObject audioPart = new JSONObject();
                           audioPart.put("inlineData", inlineData);
                           parts.put(audioPart);
 
-                          content.put("parts", parts);
-                          contents.put(content);
+                          userTurn.put("parts", parts);
+                          contents.put(userTurn);
                           requestJson.put("contents", contents);
 
-                          String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey;
+                          String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent";
                           RequestBody body = RequestBody.create(requestJson.toString(), MediaType.parse("application/json; charset=utf-8"));
-                          Request request = new Request.Builder().url(url).post(body).build();
+                          Request request = new Request.Builder()
+                              .url(url)
+                              .addHeader("x-goog-api-key", apiKey)
+                              .post(body)
+                              .build();
 
                           try (Response response = getClient().newCall(request).execute()) {
                               String respStr = response.body() != null ? response.body().string() : "";
@@ -1542,14 +1626,13 @@ jobs:
                   }).start();
               }
 
-              // --- AI Rewrite Engine ---
+              // --- AI Rewriting Engine ---
               private void rewriteWithGemini(String instruction) {
                   InputConnection ic = getCurrentInputConnection();
                   CharSequence before = ic != null ? ic.getTextBeforeCursor(3000, 0) : null;
                   CharSequence after = ic != null ? ic.getTextAfterCursor(3000, 0) : null;
                   String fullText = (before != null ? before.toString() : "") + (after != null ? after.toString() : "");
 
-                  // Fallback to clipboard if active input is empty
                   if (fullText.trim().isEmpty()) {
                       List<String> clips = getClipboardHistory();
                       if (!clips.isEmpty()) fullText = clips.get(0);
@@ -1568,31 +1651,36 @@ jobs:
 
                   SharedPreferences prefs = getSharedPreferences("gemini_prefs", MODE_PRIVATE);
                   String apiKey = prefs.getString("api_key", "").trim();
-                  String modelName = prefs.getString("model_name", "gemini-2.0-flash").trim();
+                  String modelName = sanitizeModelName(prefs.getString("model_name", "gemini-3.1-flash-lite").trim());
 
                   new Thread(() -> {
                       try {
                           JSONObject requestJson = new JSONObject();
                           JSONArray contents = new JSONArray();
-                          JSONObject content = new JSONObject();
-                          JSONArray parts = new JSONArray();
+                          JSONObject userTurn = new JSONObject();
+                          userTurn.put("role", "user");
 
+                          JSONArray parts = new JSONArray();
                           JSONObject textPart = new JSONObject();
                           String prompt = "Instruction: " + instruction + "\nOutput ONLY the rewritten text without commentary, quotes, or markdown.\n\nOriginal Text:\n" + sourceText;
                           textPart.put("text", prompt);
                           parts.put(textPart);
 
-                          content.put("parts", parts);
-                          contents.put(content);
+                          userTurn.put("parts", parts);
+                          contents.put(userTurn);
                           requestJson.put("contents", contents);
 
                           JSONObject genConfig = new JSONObject();
                           genConfig.put("temperature", 0.3);
                           requestJson.put("generationConfig", genConfig);
 
-                          String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + apiKey;
+                          String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent";
                           RequestBody body = RequestBody.create(requestJson.toString(), MediaType.parse("application/json; charset=utf-8"));
-                          Request request = new Request.Builder().url(url).post(body).build();
+                          Request request = new Request.Builder()
+                              .url(url)
+                              .addHeader("x-goog-api-key", apiKey)
+                              .post(body)
+                              .build();
 
                           try (Response response = getClient().newCall(request).execute()) {
                               String respStr = response.body() != null ? response.body().string() : "";
